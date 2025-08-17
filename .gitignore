@@ -1,3 +1,17 @@
+# Defined ignore files
+init_env_mine.sh
+wandb/
+data/
+data
+checkpoints/
+checkpoints_backup/
+__pycache__/
+*/__pycache__/
+*/*/__pycache__/
+Uni-Core/
+results/
+
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
