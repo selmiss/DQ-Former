@@ -150,17 +150,21 @@ def main(args):
         answers.extend(answer)
         smiles_list.extend(smiles)
 
-    
-    true_pattern = r'[Hh]igh [Pp]ermeability'
-    false_pattern = r'[Ll]ow-to-[Mm]oderate [Pp]ermeability|[Mm]oderate [Pp]ermeability'
+    # Hard code for BBBP
+    # Ensure "Non-penetrant" is not misclassified as "Penetrant" by checking the negative case first
     labels, preds = [], []
     for response, answer in zip(responses, answers):
-        label = 1 if answer == "High permeability" else 0
+        label = 1 if answer == "Penetrant" else 0
 
-        response = response.split("Final answer: ")[-1].strip()
-        if re.search(true_pattern, response): pred = 1
-        elif re.search(false_pattern, response): pred = 0
-        else: pred = None
+        final_answer_text = response.split("Final answer: ")[-1].strip()
+        final_answer_text_lower = final_answer_text.lower()
+
+        if re.search(r"non[-\s]?penetrant", final_answer_text_lower):
+            pred = 0
+        elif re.search(r"\bpenetrant\b", final_answer_text_lower):
+            pred = 1
+        else:
+            pred = None
 
         labels.append(label)
         preds.append(pred)
