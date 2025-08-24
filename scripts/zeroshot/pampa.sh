@@ -2,7 +2,6 @@
 : "${BASE_DIR:?Environment variable BASE_DIR not set}"
 : "${DATA_DIR:?Environment variable DATA_DIR not set}"
 
-export CUDA_VISIBLE_DEVICES=4
 export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
 
 python ${BASE_DIR}/zeroshot/inference.py \

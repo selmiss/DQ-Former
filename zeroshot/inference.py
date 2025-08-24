@@ -4,9 +4,10 @@ from tqdm import tqdm
 import re
 import numpy as np
 import os
-
+import warnings
 from torch.utils.data import DataLoader
 from torch_geometric.data import Batch
+from sklearn.metrics import f1_score
 
 from transformers import AutoTokenizer, LlamaForCausalLM
 from models.mol_llama import MolLLaMA, DQMolLLaMA, DQMolLLaMAEncoder
@@ -72,12 +73,17 @@ def main(args):
                         split='test', prompt_type=args.prompt_type, 
                         unimol_dictionary=encoder.unimol_dictionary,
                         only_llm=args.only_llm)
+    if hasattr(dataset, 'positive_label') and hasattr(dataset, 'negative_label'):
+        positive_label = dataset.positive_label
+        negative_label = dataset.negative_label
+    else:
+        warnings.warn(f"Positive and negative labels not found in meta.json, using 'positive' and 'negative' as default.")
 
     collater = ZeroshotCollater(tokenizer, encoder.unimol_dictionary, llama_version, args.only_llm)
     dataloader = DataLoader(dataset, batch_size=32, collate_fn=collater, shuffle=False)
 
+    # ----------- Generation ----------- #
     pattern = r"[Ff]inal [Aa]nswer:"
-
     responses, answers, smiles_list = [], [], []
     for graph_batch, text_batch, answer, smiles in tqdm(dataloader):
         for key in graph_batch.keys():
@@ -108,7 +114,7 @@ def main(args):
         generated_texts = tokenizer.batch_decode(outputs, skip_special_tokens=True)
         original_texts = tokenizer.batch_decode(text_batch['input_ids'], skip_special_tokens=False)
 
-        # Generate further if the output does not contain "Final answer:"
+        # --- Generate one more time if the output does not contain "Final answer:" --- #
         no_format_indices = []
         new_texts = []
         for idx, (original_text, generated_text) in enumerate(zip(original_texts, generated_texts)):
@@ -145,29 +151,50 @@ def main(args):
 
             for _, i in enumerate(no_format_indices):
                 generated_texts[i] += "\n\nFinal answer: " + new_generated_texts[_]
+            # --- Add the new generated texts to the generated texts --- #
             
+        # --- Get all the generated texts --- #
         responses.extend(generated_texts)
         answers.extend(answer)
         smiles_list.extend(smiles)
+        
 
+    # ----------- Evaluation ----------- #
+    # Process just one batch for testing
     # Hard code for BBBP
     # Ensure "Non-penetrant" is not misclassified as "Penetrant" by checking the negative case first
     labels, preds = [], []
+    print(args.debug_mode, "debug_mode",positive_label, negative_label)
+
     for response, answer in zip(responses, answers):
-        label = 1 if answer == "Penetrant" else 0
+        if re.search(negative_label, answer.lower()):
+            label = 0
+        elif re.search(positive_label, answer.lower()):
+            label = 1
+        else:
+            label = None
+
+        if label is None:
+            warnings.warn(f"Label not found in answer: {answer}")
+            continue
 
         final_answer_text = response.split("Final answer: ")[-1].strip()
         final_answer_text_lower = final_answer_text.lower()
 
-        if re.search(r"non[-\s]?penetrant", final_answer_text_lower):
+        if re.search(f"{negative_label}", final_answer_text_lower):
             pred = 0
-        elif re.search(r"\bpenetrant\b", final_answer_text_lower):
+        elif re.search(f"{positive_label}", final_answer_text_lower):
             pred = 1
         else:
             pred = None
 
         labels.append(label)
         preds.append(pred)
+
+    non_rate = len([p for p in preds if p is None]) / len(preds) * 100
+    
+
+    # -------- End of evaluation ----------- #
 
 
     # Save the results
@@ -192,12 +219,25 @@ def main(args):
     labels = labels[mask]
     preds = preds[mask]
 
+    labels = labels.tolist()
+    preds = preds.tolist()
 
-    accuracy = (preds == labels).sum() / len(labels) * 100
+    accuracy = (np.array(preds) == np.array(labels)).mean() * 100
+    # Calculate F1 score
+    if len(labels) > 0:
+        
+        f1 = f1_score(labels, preds) * 100
+    else:
+        f1 = 0.0
+
+    print(f'F1 Score: {f1:.2f}%')
     print(f'Accuracy: {accuracy:.2f}%')
+    print(f"Non-rate: {non_rate:.2f}%")
 
     with open(os.path.join(output_dir, f'acc_{save_name}.txt'), 'w', encoding='utf-8') as f:
         f.write(f'Accuracy: {accuracy:.2f}%\n')            
+        f.write(f"Non-rate: {non_rate:.2f}%\n")
+        f.write(f'F1 Score: {f1:.2f}%\n')
 
 
 if __name__ == '__main__':
@@ -211,6 +251,7 @@ if __name__ == '__main__':
     parser.add_argument('--prompt_type', type=str, default='default', choices=['default', 'rationale', 'task_info'],)
     parser.add_argument('--only_llm', default=False, action='store_true')
     parser.add_argument('--use_dq_encoder', default=True, action='store_true')
+    parser.add_argument('--debug_mode', default=False, action='store_true')
     args = parser.parse_args()
     main(args)
 

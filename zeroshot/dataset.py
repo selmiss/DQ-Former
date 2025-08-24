@@ -9,6 +9,7 @@ from data_provider.tokenization_utils import batch_tokenize_messages_list, batch
 from data_provider.collaters import Mol3DCollater
 import numpy as np
 from tqdm import tqdm
+import warnings
 
 class ZeroshotDataset(Dataset):
     def __init__(self, data_dir, split, prompt_type, 
@@ -72,6 +73,14 @@ class ZeroshotDataset(Dataset):
         meta = json.load(open(meta_path, 'r'))
         self.prompts = meta['prompts'][prompt_type]
         self.split = meta['split']
+        if 'positive_label' in meta and 'negative_label' in meta:
+            self.positive_label = meta['positive_label'].lower()
+            self.negative_label = meta['negative_label'].lower()
+        else:
+            self.positive_label = 'positive'
+            self.negative_label = 'negative'
+            warnings.warn(f"Positive and negative labels not found in meta.json, using 'positive' and 'negative' as default.")
+
         target_indices = self.split[split]
 
         # Build index for JSONL
