@@ -1,4 +1,5 @@
 # Defined ignore files
+envs/
 init_env_mine.sh
 wandb/
 data/
