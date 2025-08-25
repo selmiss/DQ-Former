@@ -1,13 +1,14 @@
-filename: stage1_v2_local_q_only_real
+filename: stage1_unimol_qformer
 
 strategy_name: deepspeed
 accelerator: gpu
 devices:
   - 0
+  - 1
 precision: bf16-mixed
 max_epochs: 6
 check_val_every_n_epoch: 1
-save_every_n_epochs: 1
+save_every_n_epochs: 3
 accumulate_grad_batches: 2
 
 weight_decay: 0.05
@@ -22,5 +23,5 @@ tune_gnn: False
 temperature: 0.1
 enable_blending: False
 use_flash_attention: True
-use_dq_encoder: True
-local_q_only: True
+use_dq_encoder: False
+local_q_only: False

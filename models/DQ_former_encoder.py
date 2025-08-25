@@ -282,6 +282,7 @@ class DQMolLLaMAEncoder(nn.Module):
         batch_nodes, batch_masks = {}, {}
         for encoder_type in self.encoder_types:
             batch_node, batch_mask = self.graph_encoder[encoder_type](**graph_batch[encoder_type])
+            
             batch_node = self.ln_graph[encoder_type](batch_node)
             batch_nodes[encoder_type] = batch_node
             batch_masks[encoder_type] = batch_mask
@@ -292,6 +293,12 @@ class DQMolLLaMAEncoder(nn.Module):
             batch_node  = batch_nodes['unimol']
             batch_mask  = batch_masks['unimol']            # [B, N]
         B, N, D = batch_node.shape                        # D == hidden_size
+
+        # ------------------------------------------------------------
+        # TODO: Use entropy-based molecular segmentation
+        print(f"batch_node.shape: {batch_node.shape}")
+
+        # ------------------------------------------------------------
 
         # ---------- (A) 构造动态 Local-Q ----------
         # 将每个样本的节点嵌入投射为 Local-Q，长度 = 节点数

@@ -1,4 +1,4 @@
-filename: stage1_v2_local_q_only_real
+filename: stage1_dqformer
 
 strategy_name: deepspeed
 accelerator: gpu
@@ -23,4 +23,4 @@ temperature: 0.1
 enable_blending: False
 use_flash_attention: True
 use_dq_encoder: True
-local_q_only: True
+local_q_only: False

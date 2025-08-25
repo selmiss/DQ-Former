@@ -9,5 +9,5 @@ python ${BASE_DIR}/zeroshot/inference.py \
     --tokenizer_path DongkiKim/Mol-Llama-3.1-8B-Instruct \
     --data_dir $DATA_DIR \
     --task_name bbbp \
-    --qformer_path ${BASE_DIR}/checkpoints/stage2_v2/epoch=01.ckpt \
+    --qformer_path DongkiKim/Mol-Llama-3.1-8B-Instruct \
     --prompt_type default

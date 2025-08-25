@@ -151,12 +151,12 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # Create model config with Flash Attention support
-    model_config = MolLLaMAConfig(
-        qformer_config={'use_flash_attention': True, 'use_dq_encoder': True},  # Enable Flash Attention for Qformer
-        graph_encoder_config={'local_q_only': True}
-    )
     data_config = edict(yaml.load(open(args.data_config_path), Loader=yaml.FullLoader))
     train_config = edict(yaml.load(open(args.train_config_path), Loader=yaml.FullLoader))
+    model_config = MolLLaMAConfig(
+        qformer_config={'use_flash_attention': train_config.use_flash_attention, 'use_dq_encoder': train_config.use_dq_encoder},  # Enable Flash Attention for Qformer
+        graph_encoder_config={'local_q_only': train_config.local_q_only}
+    )
 
     print('-'*60)
     print(f'batch_size: {data_config.batch_size}\tnum_devices: {len(train_config.devices)}\taccumulate_grad_batches: {train_config.accumulate_grad_batches}')
