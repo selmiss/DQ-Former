@@ -1,4 +1,4 @@
-filename: stage1_dqformer
+filename: stage1_dqformer_brics
 
 strategy_name: deepspeed
 accelerator: gpu
@@ -7,7 +7,7 @@ devices:
 precision: bf16-mixed
 max_epochs: 6
 check_val_every_n_epoch: 1
-save_every_n_epochs: 1
+save_every_n_epochs: 3
 accumulate_grad_batches: 2
 
 weight_decay: 0.05
@@ -24,3 +24,4 @@ enable_blending: False
 use_flash_attention: True
 use_dq_encoder: True
 local_q_only: False
+brics_ids: True

@@ -129,7 +129,7 @@ def main(model_config, train_config, data_config, test_mode=False):
     else:
         strategy = 'auto'
     
-    logger = WandbLogger(project="Mol-LLaMA", name=train_config.filename)
+    logger = WandbLogger(project="Stage2", name=train_config.filename)
 
     trainer = Trainer(
         accelerator=train_config.accelerator,
@@ -155,9 +155,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    model_config = MolLLaMAConfig({'use_flash_attention': True, 'use_dq_encoder': True})  # Enable Flash Attention for Qformer
+    
     data_config = edict(yaml.load(open(args.data_config_path), Loader=yaml.FullLoader))
     train_config = edict(yaml.load(open(args.train_config_path), Loader=yaml.FullLoader))
+    model_config = MolLLaMAConfig({'use_flash_attention': train_config.use_flash_attention, 'use_dq_encoder': train_config.use_dq_encoder})  # Enable Flash Attention for Qformer
 
     print('-'*60)
     print(f'batch_size: {data_config.batch_size}\tnum_devices: {len(train_config.devices)}\taccumulate_grad_batches: {train_config.accumulate_grad_batches}')

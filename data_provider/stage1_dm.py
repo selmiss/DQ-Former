@@ -17,7 +17,7 @@ class Stage1Collater:
         self.encoder_types = encoder_types
 
     def __call__(self, batch):
-        data_graphs, iupac_names = zip(*batch)
+        data_graphs, iupac_names, brics_ids = zip(*batch)
 
         graph_batch = {}
         if 'unimol' in self.encoder_types:
@@ -40,7 +40,7 @@ class Stage1Collater:
                                         return_attention_mask=True, 
                                         return_token_type_ids=False)
     
-        return graph_batch, text_batch, iupac_names
+        return graph_batch, text_batch, iupac_names, brics_ids
 
 class Stage1DM(LightningDataModule):
     def __init__(
@@ -54,6 +54,7 @@ class Stage1DM(LightningDataModule):
         text_max_len=512,
         unimol_max_atoms=512,
         test_mode=False,
+        brics_ids=False,
     ):
         super().__init__()
         self.batch_size = batch_size
@@ -64,12 +65,20 @@ class Stage1DM(LightningDataModule):
         self.unimol_max_atoms = unimol_max_atoms
         self.encoder_types = encoder_types
         self.test_mode = test_mode
+        self.brics_ids = brics_ids
 
         print('Loading molecule data...')
         if test_mode:
-            data_list = json.load(open(root + 'pubchem-molecules-test.json'))
+            if brics_ids:
+                data_list = json.load(open(root + 'pubchem-molecules-test_brics.json'))
+            else:
+                data_list = json.load(open(root + 'pubchem-molecules-test.json'))
         else:
-            data_list = json.load(open(root + 'pubchem-molecules.json'))
+            if brics_ids:
+                data_list = json.load(open(root + 'pubchem-molecules_brics.json'))
+            else:
+                data_list = json.load(open(root + 'pubchem-molecules.json'))
+
         train_data_list = [data for data in data_list if data['split'] == 'pretrain']
         val_data_list = [data for data in data_list if data['split'] == 'valid']
         

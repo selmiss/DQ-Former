@@ -199,7 +199,7 @@ class MolLLaMAEncoder(nn.Module):
         else:
             return contextlib.nullcontext()
 
-    def compute_loss(self, graph_batch, text_batch):
+    def compute_loss(self, graph_batch, text_batch, brics_ids):
         batch_size = text_batch.input_ids.shape[0]
 
         batch_node, batch_mask, query_output = self.graph_forward(graph_batch)

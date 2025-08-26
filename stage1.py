@@ -71,14 +71,6 @@ def main(model_config, train_config, data_config, test_mode=False):
             'data': edict_to_dict(data_config)}
     model.save_hyperparameters(args)
 
-    # for name, param in model.named_parameters():
-    #     if param.requires_grad:
-    #         print(f"{name}: {param.shape}")
-    #     else:
-    #         print(f"{name}: {param.shape} (not trainable)")
-    
-    # exit()
-
 
     dm = Stage1DM(
         num_workers = data_config.num_workers, 
@@ -89,6 +81,7 @@ def main(model_config, train_config, data_config, test_mode=False):
         encoder_types = model_config.graph_encoder_config.encoder_types, 
         text_max_len = data_config.text_max_len,
         test_mode = test_mode,  # Add test mode parameter
+        brics_ids = train_config.brics_ids,
     )
     
     checkpoint_dir = f"checkpoints/{train_config.filename}/"

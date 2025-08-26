@@ -60,6 +60,7 @@ class MoleculeQATrainer(pl.LightningModule):
                 vocab_size=vocab_size,
                 torch_dtype = torch_dtype,
                 enable_flash = train_config.enable_flash,
+                freeze_llm = train_config.freeze_llm,
             )
         else:
             self.mol_llama = MolLLaMA(
@@ -67,6 +68,7 @@ class MoleculeQATrainer(pl.LightningModule):
                 vocab_size=vocab_size,
                 torch_dtype = torch_dtype,
                 enable_flash = train_config.enable_flash,
+                freeze_llm = train_config.freeze_llm,
             )
 
         self.test_step_outputs = []

@@ -65,6 +65,7 @@ class Stage2DM(LightningDataModule):
             data_types,
             test_mode: bool = False,
             max_test_samples: int = 128,
+            brics_ids: bool = False,
     ):
         super().__init__()
         self.tokenizer = tokenizer
@@ -74,14 +75,21 @@ class Stage2DM(LightningDataModule):
         self.unimol_dictionary = unimol_dictionary
         self.encoder_types = encoder_types
         self.test_mode = test_mode
-        
+        self.brics_ids = brics_ids
         print('Loading molecule data...')
         if test_mode:
-            data_list = json.load(open(root + 'pubchem-molecules-test.json'))
+            if brics_ids:
+                data_list = json.load(open(root + 'pubchem-molecules-test_brics.json'))
+            else:
+                data_list = json.load(open(root + 'pubchem-molecules-test.json'))
             mol_dataset = None
         else:
-            data_list = json.load(open(root + 'pubchem-molecules.json'))
+            if brics_ids:
+                data_list = json.load(open(root + 'pubchem-molecules_brics.json'))
+            else:
+                data_list = json.load(open(root + 'pubchem-molecules.json'))
             mol_dataset = MolDataset_cid(data_list, unimol_dictionary, encoder_types)
+
         json_paths = [os.path.join(root, f'{data_type}.json') for data_type in data_types]
 
         self.train_dataset = InstructionDataset(

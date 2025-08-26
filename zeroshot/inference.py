@@ -250,7 +250,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--prompt_type', type=str, default='default', choices=['default', 'rationale', 'task_info'],)
     parser.add_argument('--only_llm', default=False, action='store_true')
-    parser.add_argument('--use_dq_encoder', default=True, action='store_true')
+    parser.add_argument('--use_dq_encoder', action='store_true')
     parser.add_argument('--debug_mode', default=False, action='store_true')
     args = parser.parse_args()
     main(args)

@@ -36,6 +36,7 @@ class Stage1Trainer(pl.LightningModule):
                 temperature = train_config.temperature,
                 tune_gnn = train_config.tune_gnn,
                 enable_blending = train_config.enable_blending,
+                brics_ids = train_config.brics_ids,
             )
         else:
             print("Using MolLLaMAEncoder")
@@ -71,10 +72,10 @@ class Stage1Trainer(pl.LightningModule):
         return optimizer
 
     def training_step(self, batch, batch_idx):
-        graph_batch, text_batch, iupac_names = batch
+        graph_batch, text_batch, iupac_names, brics_ids = batch
         self.scheduler.step(self.trainer.current_epoch, self.trainer.global_step)
         batch_size = text_batch.input_ids.size(0)
-        loss = self.encoder.compute_loss(graph_batch, text_batch)
+        loss = self.encoder.compute_loss(graph_batch, text_batch, brics_ids)
 
         ###============== Overall Loss ===================###
         self.log("train_loss_gtc", float(loss['loss_gtc']), batch_size=batch_size, sync_dist=True)
@@ -87,9 +88,9 @@ class Stage1Trainer(pl.LightningModule):
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
-        graph_batch, text_batch, iupac_names = batch
+        graph_batch, text_batch, iupac_names, brics_ids = batch
         batch_size = text_batch.input_ids.size(0)
-        loss = self.encoder.compute_loss(graph_batch, text_batch)
+        loss = self.encoder.compute_loss(graph_batch, text_batch, brics_ids)
         ###============== Overall Loss ===================###
         self.log("val_loss_gtc", float(loss['loss_gtc']), batch_size=batch_size, sync_dist=True)
         self.log("val_loss_gtm", float(loss['loss_gtm']), batch_size=batch_size, sync_dist=True)

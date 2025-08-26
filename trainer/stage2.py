@@ -49,6 +49,7 @@ class Stage2Trainer(pl.LightningModule):
                 torch_dtype = torch_dtype,
                 enable_flash = train_config.enable_flash,
                 add_ids = add_ids,
+                freeze_llm = train_config.freeze_llm if train_config.freeze_llm else False,
             )
         else:
             print("Using MolLLaMA")
@@ -57,6 +58,7 @@ class Stage2Trainer(pl.LightningModule):
                 vocab_size=vocab_size,
                 torch_dtype = torch_dtype,
                 enable_flash = train_config.enable_flash,
+                freeze_llm = train_config.freeze_llm if train_config.freeze_llm else False,
                 # add_ids = add_ids,
             )
 

@@ -20,7 +20,7 @@ from unicore.data import Dictionary
 from models.unimol.unimol import SimpleUniMolModel
 from models.moleculestm.moleculestm import MoleculeSTM
 from models.blending_module.blending_module import BlendingModule
-from models.qformer.modeling_bert import BertConfig, BertLMHeadModel
+from models.qformer.dq_modeling_bert import BertConfig, BertLMHeadModel
 
 
 
@@ -41,6 +41,7 @@ class DQMolLLaMAEncoder(nn.Module):
         temperature=0.1,
         tune_gnn=False,
         enable_blending=False,
+        brics_ids=False,
     ):
         super().__init__()
         self.num_query_tokens = qformer_config.num_query_tokens
@@ -48,7 +49,7 @@ class DQMolLLaMAEncoder(nn.Module):
         self.tune_gnn = tune_gnn
         self.encoder_types = graph_encoder_config.encoder_types
         self.local_q_only = graph_encoder_config.local_q_only
-
+        self.brics_ids = brics_ids
         print(f"local_q_only: {self.local_q_only}")
 
         # Initialize graph encoders
@@ -252,10 +253,10 @@ class DQMolLLaMAEncoder(nn.Module):
         else:
             return contextlib.nullcontext()
 
-    def compute_loss(self, graph_batch, text_batch):
+    def compute_loss(self, graph_batch, text_batch, brics_ids):
         batch_size = text_batch.input_ids.shape[0]
 
-        batch_node, batch_mask, query_output = self.graph_forward(graph_batch)
+        batch_node, batch_mask, query_output = self.graph_forward(graph_batch, brics_ids)
         
         graph_feats = self.graph_proj(query_output.last_hidden_state) # shape = [B, num_q, D]
         graph_feats = F.normalize(graph_feats, p=2, dim=-1)
@@ -277,8 +278,95 @@ class DQMolLLaMAEncoder(nn.Module):
             "loss_gtm": loss_gtm,
             "loss_lm": loss_lm,
         }
+
+    @staticmethod
+    def pool_by_brics(batch_node: torch.Tensor,
+                    batch_mask: torch.Tensor,
+                    brics_ids_batch):
+        """
+        Pool atom embeddings into BRICS fragment embeddings.
+
+        Args:
+            batch_node: [B, N, D] float tensor (includes BOS/EOS + padding)
+            batch_mask: [B, N] bool/byte tensor; True for valid tokens incl. BOS/EOS
+            brics_ids_batch: list/tuple length B; each item is 1D LongTensor of
+                            per-atom fragment IDs (heavy atoms only, node order; NO BOS/EOS)
+
+        Returns:
+            pooled: [B, G_max, D] float tensor (padded with 0)
+            frag_mask: [B, G_max] bool tensor (True where a fragment exists)
+            original_frag_ids: list length B; each is 1D LongTensor of size G_i
+                            (the original fragment labels in the order we output)
+        """
+        device = batch_node.device
+        B, N, D = batch_node.shape
+
+        pooled_list = []
+        frag_ids_list = []
+
+        for b in range(B):
+            mask = batch_mask[b]             # [N]
+            L = int(mask.sum().item())       # valid tokens incl. BOS/EOS
+            # assume first and last valid are BOS/EOS
+            heavy_len = max(0, L - 2)
+
+            # slice heavy-atom embeddings [heavy_len, D]
+            # guard against any mismatch between heavy_len and brics_ids length
+            x = batch_node[b, 1:1+heavy_len, :] if heavy_len > 0 else batch_node.new_zeros((0, D))
+
+            # brics ids for this sample
+            labels = brics_ids_batch[b]
+            if not torch.is_tensor(labels):
+                labels = torch.as_tensor(labels, dtype=torch.long)
+            labels = labels.to(device)
+
+            # align lengths: clip to the min length; if labels shorter, pad last id
+            if labels.numel() < x.size(0):
+                if labels.numel() == 0:
+                    # no labels -> make a single fragment over all atoms
+                    labels = torch.zeros(x.size(0), dtype=torch.long, device=device)
+                else:
+                    pad_id = labels[-1].item()
+                    labels = torch.cat([labels, torch.full((x.size(0)-labels.numel(),),
+                                                        pad_id, dtype=torch.long, device=device)], dim=0)
+            elif labels.numel() > x.size(0):
+                labels = labels[:x.size(0)]
+
+            # stable compaction by first occurrence in node order:
+            # unique (sorted=False) + return_inverse gives mapping atom->frag_idx(0..G-1)
+            uniq, inverse = torch.unique(labels, sorted=False, return_inverse=True)
+            G = int(uniq.numel())
+
+            # aggregate by index_add
+            sums = x.new_zeros((G, D))
+            sums.index_add_(0, inverse, x)
+
+            counts = torch.bincount(inverse, minlength=G).clamp_min(1).unsqueeze(1).to(x.dtype)
+            pooled = sums / counts  # [G, D]
+
+            pooled_list.append(pooled)           # variable [G_i, D]
+            frag_ids_list.append(uniq.detach())  # original labels in our fragment order
+
+        # pad to batch
+        G_max = max((p.shape[0] for p in pooled_list), default=0)
+        if G_max == 0:
+            pooled = batch_node.new_zeros((B, 0, D))
+            frag_mask = batch_mask.new_zeros((B, 0), dtype=torch.bool)
+            return pooled, frag_mask, frag_ids_list
+
+        padded = batch_node.new_zeros((B, G_max, D))
+        frag_mask = batch_mask.new_zeros((B, G_max), dtype=torch.bool)
+
+        for b, p in enumerate(pooled_list):
+            g = p.shape[0]
+            if g > 0:
+                padded[b, :g, :] = p
+                frag_mask[b, :g] = True
+
+        return padded, frag_mask, frag_ids_list
+
     
-    def graph_forward(self, graph_batch):
+    def graph_forward(self, graph_batch, brics_ids):
         batch_nodes, batch_masks = {}, {}
         for encoder_type in self.encoder_types:
             batch_node, batch_mask = self.graph_encoder[encoder_type](**graph_batch[encoder_type])
@@ -295,15 +383,21 @@ class DQMolLLaMAEncoder(nn.Module):
         B, N, D = batch_node.shape                        # D == hidden_size
 
         # ------------------------------------------------------------
-        # TODO: Use entropy-based molecular segmentation
-        print(f"batch_node.shape: {batch_node.shape}")
+        # TODO: Use BRICS-based molecular segmentation to pool sub-graphs into one embeddings, the output should be length of frags
+        if self.brics_ids:
+            pooled_frags, frag_mask, frag_labels = self.pool_by_brics(batch_node, batch_mask, brics_ids)
+        else:
+            pooled_frags = batch_node
+            frag_mask = batch_mask
+            frag_labels = None
+
 
         # ------------------------------------------------------------
 
         # ---------- (A) 构造动态 Local-Q ----------
         # 将每个样本的节点嵌入投射为 Local-Q，长度 = 节点数
-        local_q = self.local_q_proj(batch_node)           # [B, N, D]
-        local_q_mask = batch_mask                         # [B, N]  True=keep / 1
+        local_q = self.local_q_proj(pooled_frags)           # [B, N, D]
+        local_q_mask = frag_mask                         # [B, N]  True=keep / 1
 
         # ---------- (B) 取静态 Global-Q ----------
         static_q = self.query_tokens.expand(B, -1, -1)    # [B, Q_fixed, D]
@@ -313,14 +407,23 @@ class DQMolLLaMAEncoder(nn.Module):
         if self.local_q_only:
             query_embeds = local_q
             query_mask = local_q_mask
+            target_len = self.max_local_q
         else:
             query_embeds = torch.cat([static_q, local_q], dim=1)          # [B, Q_fixed+N, D]
             query_mask   = torch.cat([static_q_mask, local_q_mask], dim=1)  # [B, Q_fixed+N]
+            target_len = self.query_tokens.shape[1] + self.max_local_q
 
-        max_q_len = self.max_local_q  # e.g., 512 or 576    # 512
-        if query_embeds.shape[1] > max_q_len:
-            query_embeds = query_embeds[:, :max_q_len, :]
-            query_mask = query_mask[:, :max_q_len]
+        # Ensure fixed query length across ranks for DDP all_gather
+        cur_len = query_embeds.shape[1]
+        if cur_len > target_len:
+            query_embeds = query_embeds[:, :target_len, :]
+            query_mask = query_mask[:, :target_len]
+        elif cur_len < target_len:
+            pad_len = target_len - cur_len
+            emb_pad = query_embeds.new_zeros((B, pad_len, query_embeds.size(-1)))
+            mask_pad = query_mask.new_zeros((B, pad_len))
+            query_embeds = torch.cat([query_embeds, emb_pad], dim=1)
+            query_mask = torch.cat([query_mask, mask_pad], dim=1)
 
         # ---------- (D) 喂入 Q-Former ----------
         query_output = self.Qformer.bert(

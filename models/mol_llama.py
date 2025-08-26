@@ -86,6 +86,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         enable_flash=True,
         add_ids=None,
         local_q_only=False,
+        freeze_llm=False,
     ):
         super().__init__(config)
 
@@ -147,9 +148,10 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
 
         # self.llm = torch.compile(self.llm)  
         # 3. 冻结 & eval
-        self.llm.eval()                # 关闭 dropout / LayerNorm 统计更新
-        for p in self.llm.parameters():  
-            p.requires_grad = False    # 明确告诉框架“别把梯度算进去”
+        if freeze_llm:
+            self.llm.eval()                # 关闭 dropout / LayerNorm 统计更新
+            for p in self.llm.parameters():  
+                p.requires_grad = False    # 明确告诉框架“别把梯度算进去”
 
         if add_ids is not None:
             embed = self.llm.get_input_embeddings()
@@ -269,8 +271,8 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
 
 
 
-    def forward(self, graph_batch, text_batch):
-        _, _, query_output = self.encoder.graph_forward(graph_batch)      
+    def forward(self, graph_batch, text_batch, brics_ids=None):
+        _, _, query_output = self.encoder.graph_forward(graph_batch, brics_ids=brics_ids)      
         query_output = self.llm_proj(query_output.last_hidden_state) #[batch_size,num_query_token,dim]
 
         inputs_embeds = self.llm.get_input_embeddings()(text_batch.input_ids) # [batch_size, max_len, dim]
@@ -308,6 +310,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         self,
         graph_batch,
         text_batch,
+        brics_ids=None,
         do_sample=False,
         num_beams=1,
         max_length=None,
@@ -323,7 +326,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         eos_token_id=None,
     ):
         # 1. 图→Query
-        _, _, query_output = self.encoder.graph_forward(graph_batch)
+        _, _, query_output = self.encoder.graph_forward(graph_batch, brics_ids=brics_ids if brics_ids is not None else None)
         query_output = self.llm_proj(query_output.last_hidden_state)  # [B,Q,D]
 
         # 2. 原文本 embedding
@@ -500,6 +503,7 @@ class MolLLaMA(MolLLaMAPreTrainedModel):
         vocab_size=None,
         torch_dtype="float16",
         enable_flash=True,
+        freeze_llm=False,
     ):
         super().__init__(config)
 
@@ -560,9 +564,10 @@ class MolLLaMA(MolLLaMAPreTrainedModel):
 
         # self.llm = torch.compile(self.llm)  
         # 3. 冻结 & eval
-        self.llm.eval()                # 关闭 dropout / LayerNorm 统计更新
-        for p in self.llm.parameters():  
-            p.requires_grad = False    # 明确告诉框架“别把梯度算进去”
+        if freeze_llm:
+            self.llm.eval()                # 关闭 dropout / LayerNorm 统计更新
+            for p in self.llm.parameters():  
+                p.requires_grad = False    # 明确告诉框架“别把梯度算进去”
 
         # -------------------------- train projector ----------------------------------
         self.llm_proj = nn.Linear(self.encoder.Qformer.config.hidden_size, 
