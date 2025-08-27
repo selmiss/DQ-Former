@@ -37,7 +37,8 @@ def score_batch(smiles_batch, ckpt_dir, vocab_path="vocab.txt", device=None):
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device).eval()
 
-    x, attn = batch_encode(smiles_batch, vocab)          # x: [B,T], attn: [B,T]
+    max_len = int(getattr(model.config, "n_positions", 512))
+    x, attn = batch_encode(smiles_batch, vocab, max_len=max_len)          # x: [B,T], attn: [B,T]
     x, attn = x.to(device), attn.to(device)
     with torch.no_grad():
         logits = model(input_ids=x, attention_mask=attn).logits  # [B,T,V]
@@ -57,7 +58,32 @@ def score_batch(smiles_batch, ckpt_dir, vocab_path="vocab.txt", device=None):
 
 
 if __name__ == "__main__":
-    smiles = ["c1ccccc1O", "CC(=O)NCCC1=CNc2c1cccc2"]  # batch input
+    # smiles = ["c1ccccc1O", "CC(=O)NCCC1=CNc2c1cccc2"]  # batch input
+    smiles = [
+    "CCO",                    # ethanol
+    "CC(=O)O",                # acetic acid
+    "CC(C)N",                 # isopropylamine
+    "CCN(CC)CC",              # triethylamine
+    "c1ccccc1",               # benzene
+    "c1ccccc1O",              # phenol
+    "c1ccc(Cl)cc1",           # chlorobenzene
+    "c1ccncc1",               # pyridine
+    "CCc1ccccc1",             # ethylbenzene
+    "CCOC(=O)C",              # ethyl acetate
+    "C1CCCCC1",               # cyclohexane
+    "c1cccc2ccccc12",         # naphthalene
+    "c1cc2ccccn2c1",          # quinoline
+    "CCSCC",                  # thioether
+    "CCCl",                   # chloroethane
+    "CCBr",                   # bromoethane
+    "CCI",                    # iodoethane
+    "CCF",                    # fluoroethane
+    "B(O)(O)O",               # boric acid
+    "O=P(O)(O)OCC",           # ethyl phosphate (P)
+    "C[Si](C)(C)C",           # (contains Si)
+    "CC[Se]CC",               # (contains Se)
+    ]
+
     ent, one_minus_pmax = score_batch(
         smiles_batch=smiles,
         ckpt_dir="checkpoints/entropy_model/checkpoint-4929",

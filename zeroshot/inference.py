@@ -198,7 +198,7 @@ def main(args):
 
 
     # Save the results
-    save_name = f"{'dq' if args.use_dq_encoder else 'no_dq'}_{'only_lm' if args.only_llm else 'no_only_lm'}_{llama_version}_{args.prompt_type}"
+    save_name = f"{args.output_name}"
     output_dir = os.path.join(args.data_dir, 'results', args.task_name)
     os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir, f're_{save_name}.txt'), 'w', encoding='utf-8') as f:
@@ -249,6 +249,7 @@ if __name__ == '__main__':
     parser.add_argument('--qformer_path', type=str, default=None)
     parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--prompt_type', type=str, default='default', choices=['default', 'rationale', 'task_info'],)
+    parser.add_argument('--output_name', type=str, default="New Pampa")
     parser.add_argument('--only_llm', default=False, action='store_true')
     parser.add_argument('--use_dq_encoder', action='store_true')
     parser.add_argument('--debug_mode', default=False, action='store_true')

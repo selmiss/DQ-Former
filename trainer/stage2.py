@@ -50,6 +50,8 @@ class Stage2Trainer(pl.LightningModule):
                 enable_flash = train_config.enable_flash,
                 add_ids = add_ids,
                 freeze_llm = train_config.freeze_llm if train_config.freeze_llm else False,
+                brics_gids_enable = train_config.brics_gids_enable,
+                entropy_gids_enable = train_config.entropy_gids_enable,
             )
         else:
             print("Using MolLLaMA")
@@ -97,7 +99,7 @@ class Stage2Trainer(pl.LightningModule):
 
         batch_size = text_batch.input_ids.size(0)
         ###============== Overall Loss ===================###
-        output = self.mol_llama(graph_batch, text_batch)
+        output = self.mol_llama(graph_batch, text_batch, other_infos)
         loss = {'loss': output['loss']}
 
         self.log("molecule loss", float(loss['loss']), batch_size=batch_size, sync_dist=True)

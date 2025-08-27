@@ -17,7 +17,7 @@ class Stage1Collater:
         self.encoder_types = encoder_types
 
     def __call__(self, batch):
-        data_graphs, iupac_names, brics_ids = zip(*batch)
+        data_graphs, iupac_names, brics_gids, entropy_gids = zip(*batch)
 
         graph_batch = {}
         if 'unimol' in self.encoder_types:
@@ -40,7 +40,7 @@ class Stage1Collater:
                                         return_attention_mask=True, 
                                         return_token_type_ids=False)
     
-        return graph_batch, text_batch, iupac_names, brics_ids
+        return graph_batch, text_batch, iupac_names, brics_gids, entropy_gids
 
 class Stage1DM(LightningDataModule):
     def __init__(
@@ -54,7 +54,8 @@ class Stage1DM(LightningDataModule):
         text_max_len=512,
         unimol_max_atoms=512,
         test_mode=False,
-        brics_ids=False,
+        brics_gids_enable=False,
+        entropy_gids_enable=False,
     ):
         super().__init__()
         self.batch_size = batch_size
@@ -65,17 +66,18 @@ class Stage1DM(LightningDataModule):
         self.unimol_max_atoms = unimol_max_atoms
         self.encoder_types = encoder_types
         self.test_mode = test_mode
-        self.brics_ids = brics_ids
+        self.brics_gids_enable = brics_gids_enable
+        self.entropy_gids_enable = entropy_gids_enable
 
         print('Loading molecule data...')
         if test_mode:
-            if brics_ids:
-                data_list = json.load(open(root + 'pubchem-molecules-test_brics.json'))
+            if brics_gids_enable or entropy_gids_enable:
+                data_list = json.load(open(root + 'pubchem-molecules-test_brics_entropy_gids.json'))
             else:
                 data_list = json.load(open(root + 'pubchem-molecules-test.json'))
         else:
-            if brics_ids:
-                data_list = json.load(open(root + 'pubchem-molecules_brics.json'))
+            if brics_gids_enable or entropy_gids_enable:
+                data_list = json.load(open(root + 'pubchem-molecules_brics_entropy_gids.json'))
             else:
                 data_list = json.load(open(root + 'pubchem-molecules.json'))
 

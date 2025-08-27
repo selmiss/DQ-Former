@@ -87,6 +87,8 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         add_ids=None,
         local_q_only=False,
         freeze_llm=False,
+        brics_gids_enable=False,
+        entropy_gids_enable=False,
     ):
         super().__init__(config)
 
@@ -95,8 +97,12 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
             graph_encoder_config = config.graph_encoder_config,
             blending_module_config = config.blending_module_config,
             qformer_config = config.qformer_config,
+            brics_gids_enable = brics_gids_enable,
+            entropy_gids_enable = entropy_gids_enable,
         )
         self.local_q_only = local_q_only
+        self.brics_gids_enable = brics_gids_enable
+        self.entropy_gids_enable = entropy_gids_enable
         self.postprocess_encoder()
         ## Initialize LLM
         if torch_dtype == "bfloat16":
@@ -271,8 +277,8 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
 
 
 
-    def forward(self, graph_batch, text_batch, brics_ids=None):
-        _, _, query_output = self.encoder.graph_forward(graph_batch, brics_ids=brics_ids)      
+    def forward(self, graph_batch, text_batch, other_infos):
+        _, _, query_output = self.encoder.graph_forward(graph_batch, brics_gids=other_infos['brics_gids'], entropy_gids=other_infos['entropy_gids'])      
         query_output = self.llm_proj(query_output.last_hidden_state) #[batch_size,num_query_token,dim]
 
         inputs_embeds = self.llm.get_input_embeddings()(text_batch.input_ids) # [batch_size, max_len, dim]

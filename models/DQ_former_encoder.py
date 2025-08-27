@@ -41,7 +41,8 @@ class DQMolLLaMAEncoder(nn.Module):
         temperature=0.1,
         tune_gnn=False,
         enable_blending=False,
-        brics_ids=False,
+        brics_gids_enable=False,
+        entropy_gids_enable=False,
     ):
         super().__init__()
         self.num_query_tokens = qformer_config.num_query_tokens
@@ -49,7 +50,8 @@ class DQMolLLaMAEncoder(nn.Module):
         self.tune_gnn = tune_gnn
         self.encoder_types = graph_encoder_config.encoder_types
         self.local_q_only = graph_encoder_config.local_q_only
-        self.brics_ids = brics_ids
+        self.brics_gids_enable = brics_gids_enable
+        self.entropy_gids_enable = entropy_gids_enable
         print(f"local_q_only: {self.local_q_only}")
 
         # Initialize graph encoders
@@ -253,10 +255,10 @@ class DQMolLLaMAEncoder(nn.Module):
         else:
             return contextlib.nullcontext()
 
-    def compute_loss(self, graph_batch, text_batch, brics_ids):
+    def compute_loss(self, graph_batch, text_batch, brics_gids, entropy_gids):
         batch_size = text_batch.input_ids.shape[0]
 
-        batch_node, batch_mask, query_output = self.graph_forward(graph_batch, brics_ids)
+        batch_node, batch_mask, query_output = self.graph_forward(graph_batch, brics_gids=brics_gids, entropy_gids=entropy_gids)
         
         graph_feats = self.graph_proj(query_output.last_hidden_state) # shape = [B, num_q, D]
         graph_feats = F.normalize(graph_feats, p=2, dim=-1)
@@ -282,7 +284,9 @@ class DQMolLLaMAEncoder(nn.Module):
     @staticmethod
     def pool_by_brics(batch_node: torch.Tensor,
                     batch_mask: torch.Tensor,
-                    brics_ids_batch):
+                    brics_gids=None,
+                    entropy_gids=None,
+                    ):
         """
         Pool atom embeddings into BRICS fragment embeddings.
 
@@ -298,6 +302,8 @@ class DQMolLLaMAEncoder(nn.Module):
             original_frag_ids: list length B; each is 1D LongTensor of size G_i
                             (the original fragment labels in the order we output)
         """
+
+        # TODO: support entropy_gids
         device = batch_node.device
         B, N, D = batch_node.shape
 
@@ -315,7 +321,7 @@ class DQMolLLaMAEncoder(nn.Module):
             x = batch_node[b, 1:1+heavy_len, :] if heavy_len > 0 else batch_node.new_zeros((0, D))
 
             # brics ids for this sample
-            labels = brics_ids_batch[b]
+            labels = brics_gids[b]
             if not torch.is_tensor(labels):
                 labels = torch.as_tensor(labels, dtype=torch.long)
             labels = labels.to(device)
@@ -366,7 +372,7 @@ class DQMolLLaMAEncoder(nn.Module):
         return padded, frag_mask, frag_ids_list
 
     
-    def graph_forward(self, graph_batch, brics_ids):
+    def graph_forward(self, graph_batch, brics_gids=None, entropy_gids=None):
         batch_nodes, batch_masks = {}, {}
         for encoder_type in self.encoder_types:
             batch_node, batch_mask = self.graph_encoder[encoder_type](**graph_batch[encoder_type])
@@ -384,8 +390,13 @@ class DQMolLLaMAEncoder(nn.Module):
 
         # ------------------------------------------------------------
         # TODO: Use BRICS-based molecular segmentation to pool sub-graphs into one embeddings, the output should be length of frags
-        if self.brics_ids:
-            pooled_frags, frag_mask, frag_labels = self.pool_by_brics(batch_node, batch_mask, brics_ids)
+        if self.brics_gids_enable and brics_gids is None:
+            raise ValueError("brics_gids is required when brics_gids_enable is True, but got None")
+        if self.entropy_gids_enable and entropy_gids is None:
+            raise ValueError("entropy_gids is required when entropy_gids_enable is True, but got None")
+
+        if self.brics_gids_enable or self.entropy_gids_enable:
+            pooled_frags, frag_mask, frag_labels = self.pool_by_brics(batch_node, batch_mask, brics_gids=brics_gids, entropy_gids=entropy_gids)
         else:
             pooled_frags = batch_node
             frag_mask = batch_mask

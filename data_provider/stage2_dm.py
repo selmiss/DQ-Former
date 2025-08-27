@@ -65,7 +65,8 @@ class Stage2DM(LightningDataModule):
             data_types,
             test_mode: bool = False,
             max_test_samples: int = 128,
-            brics_ids: bool = False,
+            brics_gids_enable: bool = False,
+            entropy_gids_enable: bool = False,
     ):
         super().__init__()
         self.tokenizer = tokenizer
@@ -75,17 +76,18 @@ class Stage2DM(LightningDataModule):
         self.unimol_dictionary = unimol_dictionary
         self.encoder_types = encoder_types
         self.test_mode = test_mode
-        self.brics_ids = brics_ids
+        self.brics_gids_enable = brics_gids_enable
+        self.entropy_gids_enable = entropy_gids_enable
         print('Loading molecule data...')
         if test_mode:
-            if brics_ids:
-                data_list = json.load(open(root + 'pubchem-molecules-test_brics.json'))
+            if brics_gids_enable or entropy_gids_enable:
+                data_list = json.load(open(root + 'pubchem-molecules-test_brics_entropy_gids.json'))
             else:
                 data_list = json.load(open(root + 'pubchem-molecules-test.json'))
             mol_dataset = None
         else:
-            if brics_ids:
-                data_list = json.load(open(root + 'pubchem-molecules_brics.json'))
+            if brics_gids_enable or entropy_gids_enable:
+                data_list = json.load(open(root + 'pubchem-molecules_brics_entropy_gids.json'))
             else:
                 data_list = json.load(open(root + 'pubchem-molecules.json'))
             mol_dataset = MolDataset_cid(data_list, unimol_dictionary, encoder_types)

@@ -81,7 +81,8 @@ def main(model_config, train_config, data_config, test_mode=False):
         encoder_types = model_config.graph_encoder_config.encoder_types, 
         text_max_len = data_config.text_max_len,
         test_mode = test_mode,  # Add test mode parameter
-        brics_ids = train_config.brics_ids,
+        brics_gids_enable = train_config.brics_gids_enable,
+        entropy_gids_enable = train_config.entropy_gids_enable,
     )
     
     checkpoint_dir = f"checkpoints/{train_config.filename}/"

@@ -24,4 +24,5 @@ enable_blending: False
 use_flash_attention: True
 use_dq_encoder: True
 local_q_only: False
-brics_ids: True
+brics_gids_enable: True
+entropy_gids_enable: False
