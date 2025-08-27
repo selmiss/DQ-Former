@@ -1,5 +1,5 @@
-filename: moleculeqa_qformer_llama3_frozen
-ckpt_path: checkpoints/stage2_qformer_llama3_frozen/last.ckpt
+filename: moleculeqa_qformer_llama3_frozen_again
+ckpt_path: checkpoints/moleculeqa_qformer_llama3_frozen/epoch=04.ckpt 
 
 strategy_name: deepspeed
 accelerator: gpu
