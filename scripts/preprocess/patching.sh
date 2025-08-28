@@ -2,6 +2,6 @@
 : "${DATA_DIR:?Environment variable DATA_DIR not set}"
 
 python ${BASE_DIR}/utils/patching_preprocess.py \
-  --input ${DATA_DIR}/zeroshot/pampa/data.jsonl \
-  --output ${DATA_DIR}/zeroshot/pampa/data_brics.jsonl \
+  --input ${DATA_DIR}/moleculeqa/train_mol.json \
+  --output ${DATA_DIR}/moleculeqa/train_mol_brics.json \
   --fallback-len 3

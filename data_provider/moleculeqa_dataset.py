@@ -66,6 +66,8 @@ class MoleculeQADataset(Dataset):
             "task": text_data['category'],
             "answer": answer,
             "smiles": text_data['smiles'],
+            "brics_gids": data_others['brics_gids'],
+            "entropy_gids": data_others['entropy_gids'],
         }
 
         return data_graphs, messages, other_info

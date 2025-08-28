@@ -61,6 +61,8 @@ class MoleculeQATrainer(pl.LightningModule):
                 torch_dtype = torch_dtype,
                 enable_flash = train_config.enable_flash,
                 freeze_llm = train_config.freeze_llm,
+                brics_gids_enable = train_config.brics_gids_enable,
+                entropy_gids_enable = train_config.entropy_gids_enable,
             )
         else:
             self.mol_llama = MolLLaMA(
@@ -107,7 +109,7 @@ class MoleculeQATrainer(pl.LightningModule):
 
         batch_size = text_batch.input_ids.size(0)
         ###============== Overall Loss ===================###
-        output = self.mol_llama(graph_batch, text_batch)
+        output = self.mol_llama(graph_batch, text_batch, other_infos)
         loss = {'loss': output['loss']}
 
         self.log("molecule loss", float(loss['loss']), batch_size=batch_size, sync_dist=True)
@@ -122,6 +124,8 @@ class MoleculeQATrainer(pl.LightningModule):
             text_batch,
             pad_token_id = self.tokenizer.pad_token_id,
             eos_token_id = [self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
+            brics_gids = other_infos['brics_gids'],
+            entropy_gids = other_infos['entropy_gids'],
         )
         generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
         original_texts = self.tokenizer.batch_decode(text_batch['input_ids'], skip_special_tokens=False)
@@ -158,6 +162,8 @@ class MoleculeQATrainer(pl.LightningModule):
                 new_text_batch,
                 pad_token_id = self.tokenizer.pad_token_id,
                 eos_token_id = [self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
+                brics_gids = other_infos['brics_gids'],
+                entropy_gids = other_infos['entropy_gids'],
             )
             new_generated_texts = self.tokenizer.batch_decode(new_responses, skip_special_tokens=True)
 
@@ -200,6 +206,8 @@ class MoleculeQATrainer(pl.LightningModule):
             text_batch,
             pad_token_id = self.tokenizer.pad_token_id,
             eos_token_id = [self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
+            brics_gids = other_infos['brics_gids'],
+            entropy_gids = other_infos['entropy_gids'],
         )
         generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
         original_texts = self.tokenizer.batch_decode(text_batch['input_ids'], skip_special_tokens=False)
@@ -236,6 +244,8 @@ class MoleculeQATrainer(pl.LightningModule):
                 new_text_batch,
                 pad_token_id = self.tokenizer.pad_token_id,
                 eos_token_id = [self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
+                brics_gids = other_infos['brics_gids'],
+                entropy_gids = other_infos['entropy_gids'],
             )
             new_generated_texts = self.tokenizer.batch_decode(new_responses, skip_special_tokens=True)
 

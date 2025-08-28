@@ -1,11 +1,10 @@
 filename: moleculeqa_dqformer_brics
-ckpt_path: checkpoints/stage2/stage2_dqformer_frozen_brics/last.ckpt
+ckpt_path: checkpoints/stage2_dqformer_frozen_brics/last.ckpt
 
 strategy_name: deepspeed
 accelerator: gpu
 devices:
   - 0
-  - 1
 precision: bf16-mixed
 max_epochs: 10
 check_val_every_n_epoch: 1
