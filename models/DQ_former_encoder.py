@@ -310,18 +310,8 @@ class DQMolLLaMAEncoder(nn.Module):
         pooled_list = []
         frag_ids_list = []
 
-        for b in range(B):
-            mask = batch_mask[b]             # [N]
-            L = int(mask.sum().item())       # valid tokens incl. BOS/EOS
-            # assume first and last valid are BOS/EOS
-            heavy_len = max(0, L - 2)
-
-            # slice heavy-atom embeddings [heavy_len, D]
-            # guard against any mismatch between heavy_len and brics_ids length
-            x = batch_node[b, 1:1+heavy_len, :] if heavy_len > 0 else batch_node.new_zeros((0, D))
-
-            # brics ids for this sample
-            labels = brics_gids[b]
+        def process_gids(x, gids):
+            labels = gids[b]
 
             if not torch.is_tensor(labels):
                 labels = torch.as_tensor(labels, dtype=torch.long)
@@ -350,6 +340,39 @@ class DQMolLLaMAEncoder(nn.Module):
 
             counts = torch.bincount(inverse, minlength=G).clamp_min(1).unsqueeze(1).to(x.dtype)
             pooled = sums / counts  # [G, D]
+            return pooled, uniq
+
+        for b in range(B):
+            mask = batch_mask[b]             # [N]
+            L = int(mask.sum().item())       # valid tokens incl. BOS/EOS
+            # assume first and last valid are BOS/EOS
+            heavy_len = max(0, L - 2)
+
+            # slice heavy-atom embeddings [heavy_len, D]
+            # guard against any mismatch between heavy_len and brics_ids length
+            x = batch_node[b, 1:1+heavy_len, :] if heavy_len > 0 else batch_node.new_zeros((0, D))
+
+            # brics ids for this sample
+            # --- start processing brics_gids ---
+            if brics_gids is not None:
+                pooled_brics, uniq_brics = process_gids(x, brics_gids[b])
+            elif entropy_gids is not None:
+                pooled_entropy, uniq_entropy = process_gids(x, entropy_gids[b])
+
+            if brics_gids is not None and entropy_gids is not None:
+                pooled = torch.cat([pooled_brics, pooled_entropy], dim=0)
+                uniq = torch.cat([uniq_brics, uniq_entropy], dim=0)
+            elif brics_gids is not None:
+                pooled = pooled_brics
+                uniq = uniq_brics
+            elif entropy_gids is not None:
+                pooled = pooled_entropy
+                uniq = uniq_entropy
+            else:
+                pooled = x
+                uniq = None
+
+            # --- end processing brics_gids ---
 
             pooled_list.append(pooled)           # variable [G_i, D]
             frag_ids_list.append(uniq.detach())  # original labels in our fragment order
