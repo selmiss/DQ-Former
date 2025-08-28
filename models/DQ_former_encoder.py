@@ -310,8 +310,8 @@ class DQMolLLaMAEncoder(nn.Module):
         pooled_list = []
         frag_ids_list = []
 
-        def process_gids(x, gids):
-            labels = gids[b]
+        def process_gids(x, labels):
+            labels = torch.as_tensor(labels, dtype=torch.long)
 
             if not torch.is_tensor(labels):
                 labels = torch.as_tensor(labels, dtype=torch.long)
@@ -356,7 +356,7 @@ class DQMolLLaMAEncoder(nn.Module):
             # --- start processing brics_gids ---
             if brics_gids is not None:
                 pooled_brics, uniq_brics = process_gids(x, brics_gids[b])
-            elif entropy_gids is not None:
+            if entropy_gids is not None:
                 pooled_entropy, uniq_entropy = process_gids(x, entropy_gids[b])
 
             if brics_gids is not None and entropy_gids is not None:
