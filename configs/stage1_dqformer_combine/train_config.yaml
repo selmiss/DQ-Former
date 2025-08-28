@@ -1,4 +1,4 @@
-filename: stage1_dqformer_entropy
+filename: stage1_dqformer_combine
 
 strategy_name: deepspeed
 accelerator: gpu
