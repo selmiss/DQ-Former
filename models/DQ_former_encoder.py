@@ -322,6 +322,7 @@ class DQMolLLaMAEncoder(nn.Module):
 
             # brics ids for this sample
             labels = brics_gids[b]
+
             if not torch.is_tensor(labels):
                 labels = torch.as_tensor(labels, dtype=torch.long)
             labels = labels.to(device)

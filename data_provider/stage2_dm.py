@@ -97,6 +97,7 @@ class Stage2DM(LightningDataModule):
             json_paths=json_paths,
             mol_dataset = mol_dataset
         )
+
     
     def train_dataloader(self):
         loader = DataLoader(self.train_dataset,

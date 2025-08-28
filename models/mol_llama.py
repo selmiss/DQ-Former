@@ -278,6 +278,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
 
 
     def forward(self, graph_batch, text_batch, other_infos):
+
         _, _, query_output = self.encoder.graph_forward(graph_batch, brics_gids=other_infos['brics_gids'], entropy_gids=other_infos['entropy_gids'])      
         query_output = self.llm_proj(query_output.last_hidden_state) #[batch_size,num_query_token,dim]
 

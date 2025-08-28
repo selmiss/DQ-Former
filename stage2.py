@@ -112,6 +112,8 @@ def main(model_config, train_config, data_config, test_mode=False):
         encoder_types=model_config.graph_encoder_config.encoder_types, 
         data_types=data_config.data_types,
         test_mode=test_mode,
+        brics_gids_enable=train_config.brics_gids_enable,
+        entropy_gids_enable=train_config.entropy_gids_enable
     )
     
     callbacks = []
