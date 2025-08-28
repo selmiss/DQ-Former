@@ -3,7 +3,7 @@
 : "${DATA_DIR:?Environment variable DATA_DIR not set}"
 
 export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=0
 
 python ${BASE_DIR}/zeroshot/inference.py \
     --pretrained_model_name_or_path unsloth/Llama-3.1-8B-Instruct \

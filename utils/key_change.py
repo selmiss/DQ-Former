@@ -4,7 +4,10 @@ import shutil
 import os
 
 # Path to your JSON file
-path = Path("data/Mol-LLaMA-Instruct/pubchem-molecules_brics.json")
+# path = Path("data/Mol-LLaMA-Instruct/pubchem-molecules_brics.json")
+# path = Path("data/Mol-LLaMA-Instruct/pubchem-molecules_brics_entropy_gids.json")
+# path = Path("data/Mol-LLaMA-Instruct/pubchem-molecules-test_brics.json")
+path = Path("data/Mol-LLaMA-Instruct/pubchem-molecules-test_brics_entropy_gids.json")
 
 # Backup the original file
 backup_path = path.with_suffix(path.suffix + ".bak")
