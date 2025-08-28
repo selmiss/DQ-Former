@@ -48,7 +48,6 @@ class Stage2Collater:
         for key in other_infos[0].keys():
             for info in other_infos:
                 other_infos_[key].append(info[key])
-
         return graph_batch, text_batch, other_infos_
 
 

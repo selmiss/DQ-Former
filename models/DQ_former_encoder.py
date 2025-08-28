@@ -282,7 +282,7 @@ class DQMolLLaMAEncoder(nn.Module):
         }
 
     @staticmethod
-    def pool_by_brics(batch_node: torch.Tensor,
+    def pool_by_patch(batch_node: torch.Tensor,
                     batch_mask: torch.Tensor,
                     brics_gids=None,
                     entropy_gids=None,
@@ -396,7 +396,7 @@ class DQMolLLaMAEncoder(nn.Module):
             raise ValueError("entropy_gids is required when entropy_gids_enable is True, but got None")
 
         if self.brics_gids_enable or self.entropy_gids_enable:
-            pooled_frags, frag_mask, frag_labels = self.pool_by_brics(batch_node, batch_mask, brics_gids=brics_gids, entropy_gids=entropy_gids)
+            pooled_frags, frag_mask, frag_labels = self.pool_by_patch(batch_node, batch_mask, brics_gids=brics_gids, entropy_gids=entropy_gids)
         else:
             pooled_frags = batch_node
             frag_mask = batch_mask

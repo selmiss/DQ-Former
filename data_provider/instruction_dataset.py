@@ -15,7 +15,7 @@ class InstructionDataset(Dataset):
 
     def __getitem__(self, index):
         text_data = self.instruction_dataset[index]
-    
+
         cid = text_data['cid']
         data_graphs, data_others = self.mol_dataset[cid]
         num_mols = len(data_graphs[list(data_graphs.keys())[0]])
@@ -25,7 +25,7 @@ class InstructionDataset(Dataset):
         for turn in text_data['conversations']:
             messages.append({"role": "user", "content": turn['user'].replace('<mol>', self.mol_prompt)})
             messages.append({"role": "assistant", "content": turn['assistant']})
-
+            
         other_info = {
             "cid": cid,
             "names": [text_data['iupac_name']],

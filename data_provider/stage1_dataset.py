@@ -20,7 +20,7 @@ class Stage1Dataset(Dataset):
         cid = self.idx2cid[index]
         data_graph, data_others = self.mol_dataset[cid]
 
-        return data_graph, data_others['iupac_name'], data_others['brics_ids'] if 'brics_ids' in data_others else None, data_others['entropy_gids'] if 'entropy_gids' in data_others else None
+        return data_graph, data_others['iupac_name'], data_others['brics_gids'] if 'brics_gids' in data_others else None, data_others['entropy_gids'] if 'entropy_gids' in data_others else None
 
 if __name__ == '__main__':
     from unicore.data import Dictionary

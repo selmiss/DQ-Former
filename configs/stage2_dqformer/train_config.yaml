@@ -5,6 +5,7 @@ strategy_name: deepspeed
 accelerator: gpu
 devices:
   - 0
+  - 1
 precision: bf16-mixed
 max_epochs: 2
 val_check_interval: 5000
