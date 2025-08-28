@@ -317,7 +317,8 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         self,
         graph_batch,
         text_batch,
-        brics_ids=None,
+        brics_gids=None,
+        entropy_gids=None,
         do_sample=False,
         num_beams=1,
         max_length=None,
@@ -333,7 +334,8 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         eos_token_id=None,
     ):
         # 1. 图→Query
-        _, _, query_output = self.encoder.graph_forward(graph_batch, brics_ids=brics_ids if brics_ids is not None else None)
+
+        _, _, query_output = self.encoder.graph_forward(graph_batch, brics_gids=brics_gids if brics_gids is not None else None, entropy_gids=entropy_gids if entropy_gids is not None else None)
         query_output = self.llm_proj(query_output.last_hidden_state)  # [B,Q,D]
 
         # 2. 原文本 embedding

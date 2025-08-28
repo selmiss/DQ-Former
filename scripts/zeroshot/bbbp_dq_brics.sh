@@ -11,5 +11,6 @@ python ${BASE_DIR}/zeroshot/inference.py \
     --data_dir ${DATA_DIR} \
     --task_name bbbp \
     --use_dq_encoder \
-    --qformer_path ${BASE_DIR}/checkpoints/stage2/stage2_dqformer_frozen_brics/last.ckpt \
-    --prompt_type default
+    --qformer_path ${BASE_DIR}/checkpoints/stage2_dqformer_frozen_brics/last.ckpt \
+    --prompt_type default \
+    --brics_gids_enable

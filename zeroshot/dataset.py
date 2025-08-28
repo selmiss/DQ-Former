@@ -88,6 +88,7 @@ class ZeroshotDataset(Dataset):
             self.jsonl_path = data_jsonl_path
             target_set = set(target_indices)
             index_to_offset = {}
+            print('load data from:', data_jsonl_path)
             with open(data_jsonl_path, 'rb') as f:
                 offset = f.tell()
                 for idx, _ in enumerate(f):
@@ -102,6 +103,7 @@ class ZeroshotDataset(Dataset):
             self.use_lazy_jsonl = True
         else:
             records = []
+            print('load data from:', data_jsonl_path)
             with open(data_jsonl_path, 'r') as f:
                 for line in tqdm(f):
                     line = line.strip()
@@ -151,7 +153,7 @@ class ZeroshotDataset(Dataset):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
         ]
-        return data_graphs, messages, data['answer'], data['smiles']
+        return data_graphs, messages, data['answer'], data['smiles'], data['brics_gids'] if 'brics_gids' in data else None, data['entropy_gids'] if 'entropy_gids' in data else None
 
 class ZeroshotCollater():
     def __init__(self, tokenizer, unimol_dictionary, llama_version, only_llm=False):
@@ -160,7 +162,7 @@ class ZeroshotCollater():
         self.d3_collater = Mol3DCollater(unimol_dictionary.pad())
         self.only_llm = only_llm
     def __call__(self, batch):
-        data_graphs, messages_list, answers, smiles = zip(*batch)
+        data_graphs, messages_list, answers, smiles, brics_gids, entropy_gids = zip(*batch)
 
         graph_batch = {}
         data_unimol = []
@@ -180,6 +182,6 @@ class ZeroshotCollater():
                                                     self.llama_version, padding_side='left')
         text_batch = tokenized
 
-        return graph_batch, text_batch, answers, smiles
+        return graph_batch, text_batch, answers, smiles, brics_gids, entropy_gids
 
     

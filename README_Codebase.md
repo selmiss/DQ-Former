@@ -25,6 +25,10 @@ conda install pyg -c pyg -y
 conda install pytorch-scatter -c pyg -y
 conda install openbabel -c conda-forge -y
 
+export CC=gcc-12 CXX=g++-12
+pip install -f https://data.pyg.org/whl/torch-2.4.1+cu121.html \
+  pyg_lib torch_scatter
+
 git clone https://github.com/dptech-corp/Uni-Core
 cd Uni-Core
 python setup.py install

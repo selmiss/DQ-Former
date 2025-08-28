@@ -43,7 +43,9 @@ def main(args):
             config=config,
             vocab_size=len(tokenizer),
             torch_dtype="float16",
-            enable_flash=True
+            enable_flash=True,
+            brics_gids_enable=args.brics_gids_enable,
+            entropy_gids_enable=args.entropy_gids_enable,
         )
         model.load_from_ckpt(args.qformer_path)
         encoder = model.encoder
@@ -85,7 +87,7 @@ def main(args):
     # ----------- Generation ----------- #
     pattern = r"[Ff]inal [Aa]nswer:"
     responses, answers, smiles_list = [], [], []
-    for graph_batch, text_batch, answer, smiles in tqdm(dataloader):
+    for graph_batch, text_batch, answer, smiles, brics_gids, entropy_gids in tqdm(dataloader):
         for key in graph_batch.keys():
             if key == 'unimol':
                 for key_ in graph_batch[key].keys():
@@ -109,6 +111,8 @@ def main(args):
                 text_batch = text_batch,
                 pad_token_id = tokenizer.pad_token_id,
                 eos_token_id = terminators,
+                brics_gids = brics_gids,
+                entropy_gids = entropy_gids,
             )
         
         generated_texts = tokenizer.batch_decode(outputs, skip_special_tokens=True)
@@ -145,6 +149,8 @@ def main(args):
                 text_batch = new_text_batch,
                 pad_token_id = tokenizer.pad_token_id,
                 eos_token_id = terminators,
+                brics_gids = [list(brics_gids)[i] for i in no_format_indices],
+                entropy_gids = [list(entropy_gids)[i] for i in no_format_indices],
             )
 
             new_generated_texts = tokenizer.batch_decode(new_generated_texts, skip_special_tokens=True)
@@ -252,6 +258,8 @@ if __name__ == '__main__':
     parser.add_argument('--output_name', type=str, default="New Pampa")
     parser.add_argument('--only_llm', default=False, action='store_true')
     parser.add_argument('--use_dq_encoder', action='store_true')
+    parser.add_argument('--brics_gids_enable', default=False, action='store_true')
+    parser.add_argument('--entropy_gids_enable', default=False, action='store_true')
     parser.add_argument('--debug_mode', default=False, action='store_true')
     args = parser.parse_args()
     main(args)

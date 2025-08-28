@@ -1,11 +1,10 @@
 filename: stage2_qformer_llama3_frozen
-stage1_path: checkpoints/stage1_unimol_qformer/last.ckpt
+stage1_path: checkpoints/stage1/stage1_unimol_qformer/last.ckpt
 
 strategy_name: deepspeed
 accelerator: gpu
 devices:
   - 0
-  - 1
 precision: bf16-mixed
 max_epochs: 2
 val_check_interval: 5000

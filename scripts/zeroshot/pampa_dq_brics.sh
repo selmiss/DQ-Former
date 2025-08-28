@@ -3,7 +3,7 @@
 : "${DATA_DIR:?Environment variable DATA_DIR not set}"
 
 export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=0
 
 python ${BASE_DIR}/zeroshot/inference.py \
     --pretrained_model_name_or_path unsloth/Llama-3.1-8B-Instruct \
@@ -11,5 +11,6 @@ python ${BASE_DIR}/zeroshot/inference.py \
     --data_dir ${DATA_DIR} \
     --task_name pampa \
     --use_dq_encoder \
-    --qformer_path ${BASE_DIR}/checkpoints/stage2/stage2_dqformer_frozen_brics/last.ckpt \
-    --prompt_type default
+    --qformer_path ${BASE_DIR}/checkpoints/stage2_dqformer_frozen_brics/last.ckpt \
+    --prompt_type default \
+    --brics_gids_enable

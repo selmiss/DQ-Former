@@ -42,7 +42,28 @@ def main():
     ap.add_argument("--q",          type=float, default=0.75)
     args = ap.parse_args()
 
-    data = json.loads(Path(args.in_json).read_text())
+    # Detect format based on file extension
+    is_jsonl = args.in_json.lower().endswith('.jsonl')
+    
+    # Read input file
+    if is_jsonl:
+        # Parse JSONL format (one JSON object per line)
+        data = []
+        with open(args.in_json, "r", encoding="utf-8") as f:
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if line:  # Skip empty lines
+                    try:
+                        data.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        raise ValueError(f"Invalid JSON on line {line_num}: {e}")
+    else:
+        # Parse JSON format
+        try:
+            data = json.loads(Path(args.in_json).read_text())
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON format: {e}")
+    
     N = len(data)
     iters = (N + args.batch_size - 1) // args.batch_size
 
@@ -53,7 +74,17 @@ def main():
         for rec, gids in zip(batch, gids_list):
             rec["entropy_gids"] = gids
 
-    Path(args.out_json).write_text(json.dumps(data, ensure_ascii=False))
+    # Write output in the same format as input
+    if is_jsonl:
+        # Write as JSONL (one JSON object per line)
+        with open(args.out_json, "w", encoding="utf-8") as f:
+            for record in data:
+                json.dump(record, f, ensure_ascii=False)
+                f.write('\n')
+    else:
+        # Write as JSON
+        Path(args.out_json).write_text(json.dumps(data, ensure_ascii=False))
+    
     print(f"Saved -> {args.out_json}")
 
 if __name__ == "__main__":

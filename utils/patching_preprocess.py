@@ -103,18 +103,35 @@ def fixed_length_ids(n_atoms: int, seg_len: int = 3) -> List[int]:
 
 def process_file(in_path: str, out_path: str, fallback_len: int = 3) -> None:
     """
-    Read JSON list, compute brics_ids per record, write output JSON.
+    Read JSON or JSONL file, compute brics_ids per record, write output in same format.
+    Detects format based on file extension: .json vs .jsonl
     Never raises on a per-record basis: uses fixed-length fallback if anything fails.
     """
+    # Detect format based on file extension
+    is_jsonl = in_path.lower().endswith('.jsonl')
+    unwrap = False
+    
     with open(in_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-
-    if not isinstance(data, list):
-        # If it's not a list, still try to handle gracefully by wrapping and unwrapping.
-        data = [data]
-        unwrap = True
-    else:
-        unwrap = False
+        if is_jsonl:
+            # Parse JSONL format (one JSON object per line)
+            data = []
+            for line_num, line in enumerate(f, 1):
+                line = line.strip()
+                if line:  # Skip empty lines
+                    try:
+                        data.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        raise ValueError(f"Invalid JSON on line {line_num}: {e}")
+        else:
+            # Parse JSON format
+            try:
+                data = json.load(f)
+                if not isinstance(data, list):
+                    # If it's not a list, still try to handle gracefully by wrapping and unwrapping.
+                    data = [data]
+                    unwrap = True
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON format: {e}")
 
     out = []
     for rec in tqdm(data, desc="BRICS fragmenting"):
@@ -139,13 +156,20 @@ def process_file(in_path: str, out_path: str, fallback_len: int = 3) -> None:
         #         n_heavy = 0
         #     ids = fixed_length_ids(n_heavy, seg_len=fallback_len)
 
-        rec2["brics_ids"] = ids
+        rec2["brics_gids"] = ids
         out.append(rec2)
 
-    # Restore shape if we wrapped a single dict
-    to_write = out[0] if unwrap and len(out) == 1 else out
+    # Write output in the same format as input
     with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(to_write, f, ensure_ascii=False)
+        if is_jsonl:
+            # Write as JSONL (one JSON object per line)
+            for record in out:
+                json.dump(record, f, ensure_ascii=False)
+                f.write('\n')
+        else:
+            # Write as JSON
+            to_write = out[0] if unwrap and len(out) == 1 else out
+            json.dump(to_write, f, ensure_ascii=False)
 
 
 def main():
