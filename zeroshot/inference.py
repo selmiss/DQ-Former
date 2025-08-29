@@ -204,7 +204,7 @@ def main(args):
 
 
     # Save the results
-    save_name = f"{args.output_name}"
+    save_name = f"{args.output_name}_{args.prompt_type}"
     output_dir = os.path.join(args.data_dir, 'results', args.task_name)
     os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir, f're_{save_name}.txt'), 'w', encoding='utf-8') as f:

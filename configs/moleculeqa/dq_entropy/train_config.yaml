@@ -1,5 +1,5 @@
-filename: moleculeqa_dqformer_brics
-ckpt_path: checkpoints/stage2_dqformer_frozen_brics/last.ckpt
+filename: moleculeqa_dqformer_entropy
+ckpt_path: checkpoints/stage2_dqformer_entropy/epoch=01.ckpt
 
 strategy_name: deepspeed
 accelerator: gpu
@@ -24,6 +24,6 @@ temperature: 0.1
 enable_flash: True
 use_dq_encoder: True
 freeze_llm: False
-brics_gids_enable: True
-entropy_gids_enable: False
+brics_gids_enable: False
+entropy_gids_enable: True
 

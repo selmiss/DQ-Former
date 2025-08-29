@@ -1,5 +1,5 @@
-filename: stage2_dqformer_entropy
-stage1_path: checkpoints/stage1_dqformer_entropy/last.ckpt
+filename: stage2_dqformer_combine
+stage1_path: checkpoints/stage1_dqformer_combine/last.ckpt
 
 strategy_name: deepspeed
 accelerator: gpu
@@ -27,7 +27,7 @@ enable_flash: True
 use_dq_encoder: True
 use_flash_attention: True
 freeze_llm: True
-brics_gids_enable: False
+brics_gids_enable: True
 entropy_gids_enable: True
 
 
