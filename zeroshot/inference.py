@@ -7,7 +7,7 @@ import os
 import warnings
 from torch.utils.data import DataLoader
 from torch_geometric.data import Batch
-from sklearn.metrics import f1_score
+from sklearn.metrics import f1_score, precision_score
 
 from transformers import AutoTokenizer, LlamaForCausalLM
 from models.mol_llama import MolLLaMA, DQMolLLaMA, DQMolLLaMAEncoder
@@ -233,10 +233,13 @@ def main(args):
     if len(labels) > 0:
         
         f1 = f1_score(labels, preds) * 100
+        precision = precision_score(labels, preds, zero_division=0) * 100
     else:
         f1 = 0.0
+        precision = 0.0
 
     print(f'F1 Score: {f1:.2f}%')
+    print(f'Precision: {precision:.2f}%')
     print(f'Accuracy: {accuracy:.2f}%')
     print(f"Non-rate: {non_rate:.2f}%")
 
@@ -244,6 +247,7 @@ def main(args):
         f.write(f'Accuracy: {accuracy:.2f}%\n')            
         f.write(f"Non-rate: {non_rate:.2f}%\n")
         f.write(f'F1 Score: {f1:.2f}%\n')
+        f.write(f'Precision: {precision:.2f}%\n')
 
 
 if __name__ == '__main__':
@@ -255,7 +259,7 @@ if __name__ == '__main__':
     parser.add_argument('--qformer_path', type=str, default=None)
     parser.add_argument('--device', type=str, default='cuda:0')
     parser.add_argument('--prompt_type', type=str, default='default', choices=['default', 'rationale', 'task_info'],)
-    parser.add_argument('--output_name', type=str, default="New Pampa")
+    parser.add_argument('--output_name', type=str, default="zeroshot")
     parser.add_argument('--only_llm', default=False, action='store_true')
     parser.add_argument('--use_dq_encoder', action='store_true')
     parser.add_argument('--brics_gids_enable', default=False, action='store_true')
