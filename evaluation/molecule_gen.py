@@ -15,7 +15,7 @@ from transformers import AutoTokenizer
 
 from utils.configuration_mol_llama import MolLLaMAConfig
 from data_provider.moleculeqa_dataset import MoleculeQADM
-from trainer.moleculeqa_trainer import MoleculeGENQATrainer
+from trainer.moleculeqa_trainer import MoleculeGENQATrainer, MoleculeQATrainer, MoleculePropertyQATrainer
 
 from utils.dist_funs import MyDeepSpeedStrategy
 
@@ -65,14 +65,32 @@ def main(model_config, train_config, data_config):
     else:
         raise NotImplementedError(f"Precision {train_config.precision} not supported.")
 
-    model = MoleculeGENQATrainer(
-        vocab_size = len(tokenizer), 
-        model_config = model_config, 
-        train_config = train_config,
-        use_dq_encoder = train_config.use_dq_encoder,
-        torch_dtype = torch_dtype
-    )
-
+    if data_config.task == 'property':
+        model = MoleculePropertyQATrainer(
+            vocab_size = len(tokenizer), 
+            model_config = model_config, 
+            train_config = train_config,
+            use_dq_encoder = train_config.use_dq_encoder,
+            torch_dtype = torch_dtype
+        )
+    elif data_config.task == 'caption':   
+        model = MoleculeGENQATrainer(
+            vocab_size = len(tokenizer), 
+            model_config = model_config, 
+            train_config = train_config,
+            use_dq_encoder = train_config.use_dq_encoder,
+            torch_dtype = torch_dtype
+        )
+    elif data_config.task == 'qa':
+        model = MoleculeQATrainer(
+            vocab_size = len(tokenizer), 
+            model_config = model_config,    
+            train_config = train_config,
+            use_dq_encoder = train_config.use_dq_encoder,
+            torch_dtype = torch_dtype
+        )
+    else:
+        raise ValueError(f"Task {data_config.task} not supported.")
    
     # model.mol_llama = model.mol_llama.from_pretrained(train_config.ckpt_path, torch_dtype=torch_dtype)
     model.mol_llama.load_from_ckpt(train_config.ckpt_path)

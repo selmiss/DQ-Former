@@ -20,6 +20,7 @@ import json
 import argparse
 from typing import List
 from tqdm import tqdm
+import warnings
 
 import numpy as np
 import torch
@@ -66,7 +67,8 @@ def brics_ids_from_smiles(smiles: str) -> List[int]:
     """
     mol = AllChem.MolFromSmiles(smiles)
     if mol is None:
-        raise ValueError(f"Invalid SMILES: {smiles}")
+        warnings.warn(f"Invalid SMILES: {smiles}")
+        return None
 
     N = mol.GetNumAtoms()  # heavy atoms only (implicit H)
     cluster_idx = bond_break(mol)

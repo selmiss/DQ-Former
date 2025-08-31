@@ -541,3 +541,209 @@ class MoleculeGENQATrainer(pl.LightningModule):
         }
 
         return metrics, per_sample
+
+class MoleculePropertyQATrainer(pl.LightningModule):
+    def __init__(self, vocab_size, model_config, train_config, use_dq_encoder=False, torch_dtype=None):
+        super().__init__()
+        self.train_config = train_config
+        if torch_dtype is None:
+            if train_config.precision == 'bf16-mixed':
+                torch_dtype = "bfloat16"
+            elif train_config.precision == '16':
+                torch_dtype = "float16"
+            elif train_config.precision == '32':
+                torch_dtype = "float32"
+        
+        self.use_dq_encoder = use_dq_encoder
+        print(f"use_dq_encoder: {use_dq_encoder}")
+
+        if use_dq_encoder:
+            self.mol_llama = DQMolLLaMA(
+                config=model_config,
+                vocab_size=vocab_size,
+                torch_dtype = torch_dtype,
+                enable_flash = train_config.enable_flash,
+                freeze_llm = train_config.freeze_llm,
+                brics_gids_enable = train_config.brics_gids_enable,
+                entropy_gids_enable = train_config.entropy_gids_enable,
+            )
+        else:
+            self.mol_llama = MolLLaMA(
+                config=model_config,
+                vocab_size=vocab_size,
+                torch_dtype = torch_dtype,
+                enable_flash = train_config.enable_flash,
+                freeze_llm = train_config.freeze_llm,
+            )
+
+        self.test_step_outputs = []
+
+    def load_from_ckpt(self, ckpt_path):
+        self.mol_llama.load_from_ckpt(ckpt_path)
+
+    def configure_optimizers(self):
+        self.trainer.fit_loop.setup_data()
+        warmup_steps = min(len(self.trainer.train_dataloader), self.train_config.warmup_steps)
+        optimizer = optim.AdamW(self.parameters(), lr=self.train_config.init_lr, weight_decay=self.train_config.weight_decay)
+        if self.train_config.scheduler == 'linear_warmup_cosine_lr':
+            self.scheduler = LinearWarmupCosineLRScheduler(optimizer, self.train_config.max_epochs, self.train_config.min_lr, self.train_config.init_lr, warmup_steps, self.train_config.warmup_lr)
+        elif self.train_config.scheduler == 'None':
+            self.scheduler = None
+        else:
+            raise NotImplementedError()
+        return optimizer
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        checkpoint.pop('optimizer_states')
+        to_be_removed = []
+        for key, value in checkpoint['state_dict'].items():
+            try:
+                if not self.get_parameter(key).requires_grad:
+                    to_be_removed.append(key)
+            except AttributeError:
+                to_be_removed.append(key)
+        for key in to_be_removed:
+            checkpoint['state_dict'].pop(key)
+
+    def training_step(self, batch, batch_idx):
+        graph_batch, text_batch, other_infos = batch
+        if self.scheduler:
+            self.scheduler.step(self.trainer.current_epoch, self.trainer.global_step)
+
+        batch_size = text_batch.input_ids.size(0)
+        ###============== Overall Loss ===================###
+        output = self.mol_llama(graph_batch, text_batch, other_infos)
+        loss = {'loss': output['loss']}
+
+        self.log("molecule loss", float(loss['loss']), batch_size=batch_size, sync_dist=True)
+        self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], batch_size=batch_size, sync_dist=True)
+        return loss['loss']
+
+    @torch.no_grad()
+    def validation_step(self, batch, batch_idx):
+        graph_batch, text_batch, other_infos = batch
+        responses = self.mol_llama.generate(
+            graph_batch,
+            text_batch,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=[self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
+            brics_gids=other_infos['brics_gids'],
+            entropy_gids=other_infos['entropy_gids'],
+        )
+        generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
+
+        for pred_text, gt_text in zip(generated_texts, other_infos['answer']):
+            self.test_step_outputs.append({
+                'prediction': pred_text,
+                'ground_truth': gt_text,
+            })
+
+        return responses
+
+    def on_validation_epoch_end(self):
+        outputs = self.test_step_outputs
+
+        world_size = getattr(self.trainer, "world_size", 1)
+        if torch.distributed.is_available() and torch.distributed.is_initialized() and world_size > 1:
+            gathered = [None for _ in range(world_size)]
+            torch.distributed.all_gather_object(gathered, outputs)
+            all_outputs = [item for sublist in gathered for item in sublist]
+        else:
+            all_outputs = outputs
+
+        if self.global_rank == 0:
+            metrics, per_sample = self.compute_metrics(all_outputs)
+            # Log MAE for validation
+            if 'MAE' in metrics:
+                self.log("val_mae", float(metrics['MAE']), prog_bar=True, sync_dist=True)
+            with open(os.path.join(self.logger.log_dir, f"epoch{self.current_epoch}_regression_results.json"), "w") as f:
+                json.dump(per_sample, f, indent=4)
+            with open(os.path.join(self.logger.log_dir, f"epoch{self.current_epoch}_regression_metrics.json"), "w") as f:
+                json.dump(metrics, f, indent=4)
+
+    @torch.no_grad()
+    def test_step(self, batch, batch_idx):
+        graph_batch, text_batch, other_infos = batch
+        responses = self.mol_llama.generate(
+            graph_batch,
+            text_batch,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=[self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
+            brics_gids=other_infos['brics_gids'],
+            entropy_gids=other_infos['entropy_gids'],
+        )
+        generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
+
+        for pred_text, gt_text in zip(generated_texts, other_infos['answer']):
+            self.test_step_outputs.append({
+                'prediction': pred_text,
+                'ground_truth': gt_text,
+            })
+
+        return responses
+
+    def on_test_epoch_end(self):
+        outputs = self.test_step_outputs
+
+        world_size = getattr(self.trainer, "world_size", 1)
+        if torch.distributed.is_available() and torch.distributed.is_initialized() and world_size > 1:
+            gathered = [None for _ in range(world_size)]
+            torch.distributed.all_gather_object(gathered, outputs)
+            all_outputs = [item for sublist in gathered for item in sublist]
+        else:
+            all_outputs = outputs
+
+        if self.global_rank == 0:
+            metrics, per_sample = self.compute_metrics(all_outputs)
+            with open(os.path.join(self.logger.log_dir, "regression_results.json"), "w") as f:
+                json.dump(per_sample, f, indent=4)
+            with open(os.path.join(self.logger.log_dir, "regression_metrics.json"), "w") as f:
+                json.dump(metrics, f, indent=4)
+                
+
+    def compute_metrics(self, outputs):
+        # Extract last numeric value from prediction text and ground-truth text, compute MAE
+        def _extract_last_number(text: Any):
+            try:
+                # If already numeric
+                if isinstance(text, (int, float, np.number)):
+                    return float(text)
+                s = str(text)
+                # Match floats/ints with optional sign and scientific notation
+                matches = re.findall(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?", s)
+                if not matches:
+                    return None
+                return float(matches[-1])
+            except Exception:
+                return None
+
+        per_sample = []
+        abs_errors = []
+        total = 0
+        valid = 0
+
+        for o in outputs:
+            gt_text = o['ground_truth']
+            pred_text = o['prediction']
+            gt_val = _extract_last_number(gt_text)
+            pred_val = _extract_last_number(pred_text)
+            total += 1
+            record = {
+                'ground_truth_text': gt_text,
+                'prediction_text': pred_text,
+                'ground_truth': gt_val,
+                'prediction': pred_val,
+            }
+            per_sample.append(record)
+            if gt_val is not None and pred_val is not None:
+                abs_errors.append(abs(pred_val - gt_val))
+                valid += 1
+
+        mae = float(np.mean(abs_errors)) if len(abs_errors) > 0 else float('nan')
+        metrics = {
+            'MAE': mae,
+            'valid_count': int(valid),
+            'total_count': int(total),
+        }
+
+        return metrics, per_sample

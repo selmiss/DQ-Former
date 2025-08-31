@@ -79,7 +79,7 @@ def build_records(items: List[Dict]) -> Dict[str, List[Dict]]:
         atoms, coords = generate_conformer(smiles)
         brics_ids = brics_ids_from_smiles(smiles)
         entropy_ids, _ = group_ids_by_entropy([smiles], ckpt_dir="checkpoints/entropy_model/checkpoint-4929", vocab_path="trainer/entropy_model/vocab.txt")
-        if atoms is None or coords is None:
+        if atoms is None or coords is None or brics_ids is None or entropy_ids is None:
             print(f"generate_conformer failed for {smiles}, skip it")
             continue
 
@@ -95,7 +95,7 @@ def build_records(items: List[Dict]) -> Dict[str, List[Dict]]:
         record_mol = {
             "atoms": atoms,
             "coordinates": [coords.tolist()],
-            "brics_gids": brics_ids,
+            "brics_gids": brics_ids[0],
             "entropy_gids": entropy_ids[0],
             "cid": cid,
             "smiles": smiles,
