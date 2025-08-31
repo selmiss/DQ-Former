@@ -7,11 +7,12 @@ from collections import defaultdict
 import torch
 from torch import optim
 import pytorch_lightning as pl
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, BertTokenizerFast
 from torch_geometric.data import Batch
 
 from models.mol_llama import MolLLaMA, DQMolLLaMA
 from trainer.optims import LinearWarmupCosineLRScheduler
+
 
 
 from nltk.translate.bleu_score import corpus_bleu
@@ -184,10 +185,11 @@ class MoleculeQATrainer(pl.LightningModule):
     def on_validation_epoch_end(self):
         outputs = self.test_step_outputs
 
-        if len(self.train_config.devices) > 1:
-            all_outputs = [None for _ in range(self.trainer.world_size)]
-            torch.distributed.all_gather_object(all_outputs, outputs)
-            all_outputs = [item for sublist in all_outputs for item in sublist]
+        world_size = getattr(self.trainer, "world_size", 1)
+        if torch.distributed.is_available() and torch.distributed.is_initialized() and world_size > 1:
+            gathered = [None for _ in range(world_size)]
+            torch.distributed.all_gather_object(gathered, outputs)
+            all_outputs = [item for sublist in gathered for item in sublist]
         else:
             all_outputs = outputs
 
@@ -266,10 +268,11 @@ class MoleculeQATrainer(pl.LightningModule):
     def on_test_epoch_end(self):
         outputs = self.test_step_outputs
 
-        if len(self.train_config.devices) > 1:
-            all_outputs = [None for _ in range(self.trainer.world_size)]
-            torch.distributed.all_gather_object(all_outputs, outputs)
-            all_outputs = [item for sublist in all_outputs for item in sublist]
+        world_size = getattr(self.trainer, "world_size", 1)
+        if torch.distributed.is_available() and torch.distributed.is_initialized() and world_size > 1:
+            gathered = [None for _ in range(world_size)]
+            torch.distributed.all_gather_object(gathered, outputs)
+            all_outputs = [item for sublist in gathered for item in sublist]
         else:
             all_outputs = outputs
 
@@ -329,3 +332,212 @@ class MoleculeQATrainer(pl.LightningModule):
 
         return corrects, results
 
+class MoleculeGENQATrainer(pl.LightningModule):
+    def __init__(self, vocab_size, model_config, train_config, use_dq_encoder=False, torch_dtype=None):
+        super().__init__()
+        self.train_config = train_config
+        if torch_dtype is None:
+            if train_config.precision == 'bf16-mixed':
+                torch_dtype = "bfloat16"
+            elif train_config.precision == '16':
+                torch_dtype = "float16"
+            elif train_config.precision == '32':
+                torch_dtype = "float32"
+        
+        self.use_dq_encoder = use_dq_encoder
+        print(f"use_dq_encoder: {use_dq_encoder}")
+
+        if use_dq_encoder:
+            self.mol_llama = DQMolLLaMA(
+                config=model_config,
+                vocab_size=vocab_size,
+                torch_dtype = torch_dtype,
+                enable_flash = train_config.enable_flash,
+                freeze_llm = train_config.freeze_llm,
+                brics_gids_enable = train_config.brics_gids_enable,
+                entropy_gids_enable = train_config.entropy_gids_enable,
+            )
+        else:
+            self.mol_llama = MolLLaMA(
+                config=model_config,
+                vocab_size=vocab_size,
+                torch_dtype = torch_dtype,
+                enable_flash = train_config.enable_flash,
+                freeze_llm = train_config.freeze_llm,
+            )
+
+        self.test_step_outputs = []
+
+    def load_from_ckpt(self, ckpt_path):
+        self.mol_llama.load_from_ckpt(ckpt_path)
+
+    def configure_optimizers(self):
+        self.trainer.fit_loop.setup_data()
+        warmup_steps = min(len(self.trainer.train_dataloader), self.train_config.warmup_steps)
+        optimizer = optim.AdamW(self.parameters(), lr=self.train_config.init_lr, weight_decay=self.train_config.weight_decay)
+        if self.train_config.scheduler == 'linear_warmup_cosine_lr':
+            self.scheduler = LinearWarmupCosineLRScheduler(optimizer, self.train_config.max_epochs, self.train_config.min_lr, self.train_config.init_lr, warmup_steps, self.train_config.warmup_lr)
+        elif self.train_config.scheduler == 'None':
+            self.scheduler = None
+        else:
+            raise NotImplementedError()
+        return optimizer
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        checkpoint.pop('optimizer_states')
+        to_be_removed = []
+        for key, value in checkpoint['state_dict'].items():
+            try:
+                if not self.get_parameter(key).requires_grad:
+                    to_be_removed.append(key)
+            except AttributeError:
+                to_be_removed.append(key)
+        for key in to_be_removed:
+            checkpoint['state_dict'].pop(key)
+
+    def training_step(self, batch, batch_idx):
+        graph_batch, text_batch, other_infos = batch
+        if self.scheduler:
+            self.scheduler.step(self.trainer.current_epoch, self.trainer.global_step)
+
+        batch_size = text_batch.input_ids.size(0)
+        ###============== Overall Loss ===================###
+        output = self.mol_llama(graph_batch, text_batch, other_infos)
+        loss = {'loss': output['loss']}
+
+        self.log("molecule loss", float(loss['loss']), batch_size=batch_size, sync_dist=True)
+        self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], batch_size=batch_size, sync_dist=True)
+        return loss['loss']
+
+    @torch.no_grad()
+    def validation_step(self, batch, batch_idx):
+        graph_batch, text_batch, other_infos = batch
+        responses = self.mol_llama.generate(
+            graph_batch,
+            text_batch,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=[self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
+            brics_gids=other_infos['brics_gids'],
+            entropy_gids=other_infos['entropy_gids'],
+        )
+        generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
+
+        for pred_text, gt_text in zip(generated_texts, other_infos['answer']):
+            self.test_step_outputs.append({
+                'prediction': pred_text,
+                'ground_truth': gt_text,
+            })
+
+        return responses
+
+    def on_validation_epoch_end(self):
+        outputs = self.test_step_outputs
+
+        world_size = getattr(self.trainer, "world_size", 1)
+        if torch.distributed.is_available() and torch.distributed.is_initialized() and world_size > 1:
+            gathered = [None for _ in range(world_size)]
+            torch.distributed.all_gather_object(gathered, outputs)
+            all_outputs = [item for sublist in gathered for item in sublist]
+        else:
+            all_outputs = outputs
+
+        if self.global_rank == 0:
+            metrics, per_sample = self.compute_metrics(all_outputs)
+            with open(os.path.join(self.logger.log_dir, f"epoch{self.current_epoch}_caption_results.json"), "w") as f:
+                json.dump(per_sample, f, indent=4)
+            with open(os.path.join(self.logger.log_dir, f"epoch{self.current_epoch}_caption_metrics.json"), "w") as f:
+                json.dump(metrics, f, indent=4)
+
+    @torch.no_grad()
+    def test_step(self, batch, batch_idx):
+        graph_batch, text_batch, other_infos = batch
+        responses = self.mol_llama.generate(
+            graph_batch,
+            text_batch,
+            pad_token_id=self.tokenizer.pad_token_id,
+            eos_token_id=[self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
+            brics_gids=other_infos['brics_gids'],
+            entropy_gids=other_infos['entropy_gids'],
+        )
+        generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
+
+        for pred_text, gt_text in zip(generated_texts, other_infos['answer']):
+            self.test_step_outputs.append({
+                'prediction': pred_text,
+                'ground_truth': gt_text,
+            })
+
+        return responses
+
+    def on_test_epoch_end(self):
+        outputs = self.test_step_outputs
+
+        world_size = getattr(self.trainer, "world_size", 1)
+        if torch.distributed.is_available() and torch.distributed.is_initialized() and world_size > 1:
+            gathered = [None for _ in range(world_size)]
+            torch.distributed.all_gather_object(gathered, outputs)
+            all_outputs = [item for sublist in gathered for item in sublist]
+        else:
+            all_outputs = outputs
+
+        if self.global_rank == 0:
+            metrics, per_sample = self.compute_metrics(all_outputs)
+            with open(os.path.join(self.logger.log_dir, "caption_results.json"), "w") as f:
+                json.dump(per_sample, f, indent=4)
+            with open(os.path.join(self.logger.log_dir, "caption_metrics.json"), "w") as f:
+                json.dump(metrics, f, indent=4)
+                
+
+    def compute_metrics(self, outputs):
+        # Prepare pairs
+        pairs = [(o['ground_truth'], o['prediction']) for o in outputs]
+        per_sample = [{'ground_truth': gt, 'prediction': pred} for gt, pred in pairs]
+
+        # Tokenizer as in reference implementation
+        text_tokenizer = BertTokenizerFast.from_pretrained('allenai/scibert_scivocab_uncased')
+
+        references = []
+        hypotheses = []
+        meteor_scores = []
+
+        for gt, pred in pairs:
+            gt_tokens = text_tokenizer.tokenize(gt, truncation=True, max_length=512, padding='max_length')
+            gt_tokens = list(filter(('[PAD]').__ne__, gt_tokens))
+            gt_tokens = list(filter(('[CLS]').__ne__, gt_tokens))
+            gt_tokens = list(filter(('[SEP]').__ne__, gt_tokens))
+
+            pred_tokens = text_tokenizer.tokenize(pred, truncation=True, max_length=512, padding='max_length')
+            pred_tokens = list(filter(('[PAD]').__ne__, pred_tokens))
+            pred_tokens = list(filter(('[CLS]').__ne__, pred_tokens))
+            pred_tokens = list(filter(('[SEP]').__ne__, pred_tokens))
+
+            references.append([gt_tokens])
+            hypotheses.append(pred_tokens)
+
+            mscore = meteor_score([gt_tokens], pred_tokens)
+            meteor_scores.append(mscore)
+
+        bleu2 = corpus_bleu(references, hypotheses, weights=(.5, .5))
+        bleu4 = corpus_bleu(references, hypotheses, weights=(.25, .25, .25, .25))
+
+        scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'])
+        rouge_scores = []
+        for gt, pred in pairs:
+            rs = scorer.score(pred, gt)
+            rouge_scores.append(rs)
+
+        rouge_1 = float(np.mean([rs['rouge1'].fmeasure for rs in rouge_scores]))
+        rouge_2 = float(np.mean([rs['rouge2'].fmeasure for rs in rouge_scores]))
+        rouge_l = float(np.mean([rs['rougeL'].fmeasure for rs in rouge_scores]))
+        meteor_avg = float(np.mean(meteor_scores)) if len(meteor_scores) > 0 else 0.0
+
+        metrics = {
+            'BLEU-2': float(bleu2),
+            'BLEU-4': float(bleu4),
+            'ROUGE-1': rouge_1,
+            'ROUGE-2': rouge_2,
+            'ROUGE-L': rouge_l,
+            'METEOR': meteor_avg,
+        }
+
+        return metrics, per_sample

@@ -182,14 +182,19 @@ def generate_conformer_with_rdkit(smiles: str) -> Tuple[Optional[List[str]], Opt
             useRandomCoords=False,
         )
         try:
-            AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=0)
+            AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=50, numThreads=10)
+            # AllChem.UFFOptimizeMoleculeConfs(mol, maxIters=10, numThreads=10)
+
         except Exception:
+            print("MMFFOptimizeMoleculeConfs {} failed".format(smiles))
             pass
         mol = Chem.RemoveHs(mol)
 
         if mol.GetNumConformers() == 0:
+            print("GetNumConformers == 0 {}".format(smiles))
             return None, None
         if num_atoms != mol.GetNumAtoms():
+            print("num_atoms != mol.GetNumAtoms() {}".format(smiles))
             return None, None
 
         atoms = [atom.GetSymbol() for atom in mol.GetAtoms()]
@@ -223,6 +228,7 @@ def generate_conformer_with_openbabel(smiles: str) -> Tuple[Optional[List[str]],
 def generate_conformer(smiles: str) -> Tuple[Optional[List[str]], Optional[np.ndarray]]:
     atoms, coordinates = generate_conformer_with_rdkit(smiles)
     if atoms is None or coordinates is None:
+        return None, None
         atoms, coordinates = generate_conformer_with_openbabel(smiles)
     return atoms, coordinates
 

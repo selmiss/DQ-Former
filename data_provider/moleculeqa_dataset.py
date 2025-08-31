@@ -63,7 +63,7 @@ class MoleculeQADataset(Dataset):
 
         other_info = {
             "cid": cid,
-            "task": text_data['category'],
+            "task": text_data['category'] if 'category' in text_data else None,
             "answer": answer,
             "smiles": text_data['smiles'],
             "brics_gids": data_others['brics_gids'],
