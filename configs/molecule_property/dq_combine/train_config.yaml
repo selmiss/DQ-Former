@@ -1,4 +1,4 @@
-filename: molgen_dqformer_combine
+filename: mol_property_dqformer_combine
 ckpt_path: checkpoints/stage2_dqformer_combine/epoch=01.ckpt
 
 strategy_name: deepspeed

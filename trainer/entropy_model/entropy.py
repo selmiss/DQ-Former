@@ -5,6 +5,7 @@ from pathlib import Path
 from transformers import GPT2LMHeadModel
 from trainer.entropy_model.tokenizer import tokenize_atoms
 from trainer.entropy_model.model import build_tiny_model
+import matplotlib.pyplot as plt
 
 
 
@@ -57,31 +58,47 @@ def score_batch(smiles_batch, ckpt_dir, vocab_path="vocab.txt", device=None):
     return ent, one_minus_pmax
 
 
+def plot_entropy_from_atoms(atom_list, entropy, title=None, savepath=None):
+    """
+    Plot entropy values given atom symbols and entropy list.
+    
+    Parameters
+    ----------
+    atom_list : list[str]
+        Atom symbols (e.g., ['N','C','C','O'])
+    entropy : list[float]
+        Entropy values per atom (must match length of atom_list)
+    title : str, optional
+        Title for the figure
+    savepath : str, optional
+        Path to save figure (png)
+    """
+    if len(atom_list) != len(entropy):
+        raise ValueError("Atom list and entropy list must have same length.")
+    
+    x = list(range(len(atom_list)))
+    fig, ax = plt.subplots(figsize=(9.5,3.2))
+    ax.plot(x, entropy, marker='^', color='pink', markeredgecolor='gray', markeredgewidth=1)
+    ax.set_xticks(x)
+    ax.set_xticklabels(atom_list, rotation=0)
+    ax.set_xlabel("Atoms")
+    ax.set_ylabel("Entropy")
+    if title:
+        ax.set_title(title)
+    ax.grid(True, which='both', linestyle='--', axis='y')
+    fig.tight_layout()
+    if savepath:
+        fig.savefig(savepath, dpi=200, bbox_inches="tight")
+    return fig, ax
+
+
+
 if __name__ == "__main__":
     # smiles = ["c1ccccc1O", "CC(=O)NCCC1=CNc2c1cccc2"]  # batch input
     smiles = [
-    "CCO",                    # ethanol
-    "CC(=O)O",                # acetic acid
-    "CC(C)N",                 # isopropylamine
-    "CCN(CC)CC",              # triethylamine
-    "c1ccccc1",               # benzene
-    "c1ccccc1O",              # phenol
-    "c1ccc(Cl)cc1",           # chlorobenzene
-    "c1ccncc1",               # pyridine
-    "CCc1ccccc1",             # ethylbenzene
-    "CCOC(=O)C",              # ethyl acetate
-    "C1CCCCC1",               # cyclohexane
-    "c1cccc2ccccc12",         # naphthalene
-    "c1cc2ccccn2c1",          # quinoline
-    "CCSCC",                  # thioether
-    "CCCl",                   # chloroethane
-    "CCBr",                   # bromoethane
-    "CCI",                    # iodoethane
-    "CCF",                    # fluoroethane
-    "B(O)(O)O",               # boric acid
-    "O=P(O)(O)OCC",           # ethyl phosphate (P)
-    "C[Si](C)(C)C",           # (contains Si)
-    "CC[Se]CC",               # (contains Se)
+    # "N(CC(=O)O)(CC(=O)O)CC(=O)O"
+    # "O=C(O)CN(CCN(CC(=O)O)CC(=O)O)CCN(CC(=O)O)CC(=O)O"
+    "O=C(O)CN(CCN(CCN(CCN(CC(=O)O)CC(=O)O)CC(=O)O)CC(=O)O)CCN(CC(=O)O)CC(=O)O"
     ]
 
     ent, one_minus_pmax = score_batch(
@@ -92,3 +109,21 @@ if __name__ == "__main__":
     # Each row i corresponds to SMILES[i], each column t is entropy for predicting token at t+1
     print("Entropy(bits) per position:\n", ent)
     print("1 - p_max per position:\n", one_minus_pmax)
+    # Calculate 75th percentile average of entropy values
+    ent_75_avg = sum([torch.quantile(e, 0.75) for e in ent[0]]) / len(ent[0])
+    print("75th percentile average entropy:", ent_75_avg.item())
+
+    atoms_demo = [
+        "O","C","O","C","N","C","C","N","C","C",
+        "N","C","C","N","C","C","O","O","C","C",
+        "O","O","C","C","O","O","C","C","O","O",
+        "C","C","N","C","C","O","O","C","C","O","O"
+    ]
+    # entropy_demo = ent[0][1:].tolist()
+    entropy_demo = [1.0, 0.8007, 1.6102, 0.6868, 1.4020, 1.3662, 1.2973, 0.9637,
+        1.4950, 1.4139, 0.9723, 1.5210, 1.5746, 1.2517, 1.5440, 1.4642, 1.8367,
+        1.9162, 1.3161, 1.4602, 1.8952, 1.9499, 1.3935, 1.3844, 1.8701, 1.9845,
+        1.4033, 1.3952, 1.8863, 1.9669, 1.3700, 1.2671, 1.3053, 1.2418, 1.2737,
+        1.7862, 1.8258, 1.2510, 1.1631, 1.7900, 1.8765]
+
+    fig, ax = plot_entropy_from_atoms(atoms_demo, entropy_demo, title="", savepath="trainer/entropy_model/fig/entropy_atoms_demo.png")

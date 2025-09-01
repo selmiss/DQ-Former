@@ -112,9 +112,9 @@ class MoleculeQATrainer(pl.LightningModule):
         ###============== Overall Loss ===================###
         output = self.mol_llama(graph_batch, text_batch, other_infos)
         loss = {'loss': output['loss']}
-
-        self.log("molecule loss", float(loss['loss']), batch_size=batch_size, sync_dist=True)
-        self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], batch_size=batch_size, sync_dist=True)
+        # Avoid per-step distributed reductions to reduce risk of NCCL allreduce timeouts
+        self.log("molecule loss", float(loss['loss']), batch_size=batch_size, sync_dist=False, prog_bar=True, on_step=False, on_epoch=True)
+        self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], batch_size=batch_size, sync_dist=False, on_step=False, on_epoch=True)
         return loss['loss']
 
     @torch.no_grad()
@@ -653,9 +653,9 @@ class MoleculePropertyQATrainer(pl.LightningModule):
 
         if self.global_rank == 0:
             metrics, per_sample = self.compute_metrics(all_outputs)
-            # Log MAE for validation
+            # Log MAE for validation (avoid distributed sync inside rank-0-only block)
             if 'MAE' in metrics:
-                self.log("val_mae", float(metrics['MAE']), prog_bar=True, sync_dist=True)
+                self.log("val_mae", float(metrics['MAE']), prog_bar=True, sync_dist=False)
             with open(os.path.join(self.logger.log_dir, f"epoch{self.current_epoch}_regression_results.json"), "w") as f:
                 json.dump(per_sample, f, indent=4)
             with open(os.path.join(self.logger.log_dir, f"epoch{self.current_epoch}_regression_metrics.json"), "w") as f:
