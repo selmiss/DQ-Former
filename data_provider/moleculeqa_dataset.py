@@ -27,7 +27,6 @@ class MoleculeQADataset(Dataset):
         self.graph_prompt = "<graph>" * 28
         self.mol_type = mol_type
         self.do_infer = do_infer
-    
 
     def __len__(self):
         return len(self.mol_dataset)

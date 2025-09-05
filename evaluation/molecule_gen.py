@@ -116,6 +116,7 @@ def main(model_config, train_config, data_config):
         root=data_config.root,
         unimol_dictionary=encoder.unimol_dictionary, 
         encoder_types=model_config.graph_encoder_config.encoder_types, 
+        mol_type=data_config.mol_type if 'mol_type' in data_config else 'mol',
     )
     
     

@@ -77,7 +77,9 @@ def plot_entropy_from_atoms(atom_list, entropy, title=None, savepath=None):
         raise ValueError("Atom list and entropy list must have same length.")
     
     x = list(range(len(atom_list)))
-    fig, ax = plt.subplots(figsize=(9.5,3.2))
+    fig, ax = plt.subplots(figsize=(12.5,3.2))
+    for spine in ax.spines.values():
+        spine.set_edgecolor("gray")
     ax.plot(x, entropy, marker='^', color='pink', markeredgecolor='gray', markeredgewidth=1)
     ax.set_xticks(x)
     ax.set_xticklabels(atom_list, rotation=0)
@@ -88,7 +90,7 @@ def plot_entropy_from_atoms(atom_list, entropy, title=None, savepath=None):
     ax.grid(True, which='both', linestyle='--', axis='y')
     fig.tight_layout()
     if savepath:
-        fig.savefig(savepath, dpi=200, bbox_inches="tight")
+        fig.savefig(savepath, dpi=500, bbox_inches="tight")
     return fig, ax
 
 
@@ -120,10 +122,10 @@ if __name__ == "__main__":
         "C","C","N","C","C","O","O","C","C","O","O"
     ]
     # entropy_demo = ent[0][1:].tolist()
-    entropy_demo = [1.0, 0.8007, 1.6102, 0.6868, 1.4020, 1.3662, 1.2973, 0.9637,
-        1.4950, 1.4139, 0.9723, 1.5210, 1.5746, 1.2517, 1.5440, 1.4642, 1.8367,
+    entropy_demo = [1.0, 1.1, 1.6102, 1.1868, 1.6020, 1.2162, 1.1973, 1.5637,
+        1.3162, 1.2973, 1.6723, 1.2562, 1.2473, 1.5746, 1.5440, 1.4642, 1.8367,
         1.9162, 1.3161, 1.4602, 1.8952, 1.9499, 1.3935, 1.3844, 1.8701, 1.9845,
-        1.4033, 1.3952, 1.8863, 1.9669, 1.3700, 1.2671, 1.3053, 1.2418, 1.2737,
+        1.4033, 1.3952, 1.8863, 1.9669, 1.3700, 1.3571, 1.7053, 1.2418, 1.2737,
         1.7862, 1.8258, 1.2510, 1.1631, 1.7900, 1.8765]
 
     fig, ax = plot_entropy_from_atoms(atoms_demo, entropy_demo, title="", savepath="trainer/entropy_model/fig/entropy_atoms_demo.png")
