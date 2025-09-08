@@ -95,7 +95,7 @@ def build_records(items: List[Dict]) -> Dict[str, List[Dict]]:
         record_mol = {
             "atoms": atoms,
             "coordinates": [coords.tolist()],
-            "brics_gids": brics_ids[0],
+            "brics_gids": brics_ids,
             "entropy_gids": entropy_ids[0],
             "cid": cid,
             "smiles": smiles,
