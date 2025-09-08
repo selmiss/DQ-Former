@@ -437,6 +437,8 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         temperature=None,
         pad_token_id=None,
         eos_token_id=None,
+        brics_gids=None,
+        entropy_gids=None,
     ):
         graph_batch = get_mol_graphs(smiles_list, self.encoder.unimol_dictionary, self.device)
         outputs = self.generate(
@@ -454,7 +456,9 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
             top_p=top_p,
             temperature=temperature,
             pad_token_id=pad_token_id,
-            eos_token_id=eos_token_id
+            eos_token_id=eos_token_id,
+            brics_gids=brics_gids,
+            entropy_gids=entropy_gids,
         )
         return outputs
 
@@ -527,42 +531,54 @@ class MolLLaMA(MolLLaMAPreTrainedModel):
             torch_dtype = torch.float32
 
 
-        # -------------------------- train llm ----------------------------------
-        # if enable_flash:
-        #     self.llm = LlamaForCausalLM.from_pretrained(config.llm_config.llm_model, torch_dtype=torch_dtype, 
-        #                                                     attn_implementation="flash_attention_2")
+                # -------------------------- train llm ----------------------------------
+        if not freeze_llm:
+            if enable_flash:
+                self.llm = LlamaForCausalLM.from_pretrained(config.llm_config.llm_model, torch_dtype=torch_dtype, 
+                                                                attn_implementation="flash_attention_2")
 
-        #     logger.info("Using flash attention")
-        # else:
-        #     self.llm = LlamaForCausalLM.from_pretrained(config.llm_config.llm_model, torch_dtype=torch_dtype)
-        # self.llm.resize_token_embeddings(vocab_size)
-        
-        # peft_config = LoraConfig(task_type=TaskType.CAUSAL_LM,
-        #                             inference_mode=False,
-        #                             r=config.llm_config.lora_config.r,
-        #                             lora_alpha=config.llm_config.lora_config.lora_alpha,
-        #                             lora_dropout=config.llm_config.lora_config.lora_dropout,
-        #                             target_modules=['k_proj', 'v_proj', 'q_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'])
-        # self.peft_config = peft_config
-        # self.llm = get_peft_model(self.llm, peft_config)
-        # self.llm.print_trainable_parameters()
+                logger.info("Using flash attention")
+            else:
+                self.llm = LlamaForCausalLM.from_pretrained(config.llm_config.llm_model, torch_dtype=torch_dtype)
+            self.llm.resize_token_embeddings(vocab_size)
+            
+            peft_config = LoraConfig(task_type=TaskType.CAUSAL_LM,
+                                        inference_mode=False,
+                                        r=config.llm_config.lora_config.r,
+                                        lora_alpha=config.llm_config.lora_config.lora_alpha,
+                                        lora_dropout=config.llm_config.lora_config.lora_dropout,
+                                        target_modules=['k_proj', 'v_proj', 'q_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'])
+            self.peft_config = peft_config
+            self.llm = get_peft_model(self.llm, peft_config)
+            self.llm.print_trainable_parameters()
 
         # -------------------------- frozen llm ----------------------------------
-        # bnb_config = BitsAndBytesConfig(
-        #     load_in_4bit=True,            # 切到 4-bit
-        #     bnb_4bit_use_double_quant=True,
-        #     bnb_4bit_quant_type="nf4",
-        #     bnb_4bit_compute_dtype=torch.float16,
-        # )
-        # 1. 加载基座模型
-        self.llm = LlamaForCausalLM.from_pretrained(
-            config.llm_config.llm_model,
-            # quantization_config=bnb_config,
-            torch_dtype=torch_dtype,
-            attn_implementation="flash_attention_2" if enable_flash else None,
-            # device_map="auto",
-        )
 
+        else:
+        # 1. 加载基座模型
+            self.llm = LlamaForCausalLM.from_pretrained(
+                config.llm_config.llm_model,
+                # quantization_config=bnb_config,
+                torch_dtype=torch_dtype,
+                attn_implementation="flash_attention_2" if enable_flash else None,
+                # device_map="auto",
+            )
+
+            # 2. 如果你自己扩充过词表，仍然可以保留这一行
+            self.llm.resize_token_embeddings(vocab_size)
+
+            # 3. 冻结 & eval
+            self.llm.eval()                # 关闭 dropout / LayerNorm 统计更新
+            for p in self.llm.parameters():  
+                p.requires_grad = False    # 明确告诉框架“别把梯度算进去”
+            
+            add_ids = None
+            if add_ids is not None:
+                embed = self.llm.get_input_embeddings()
+                unlock_new_token_embeddings(embed, add_ids, init="mean")
+        # -------------------------- train projector ----------------------------------
+        self.llm_proj = nn.Linear(self.encoder.Qformer.config.hidden_size, 
+                                    self.llm.config.hidden_size)
         # 2. 如果你自己扩充过词表，仍然可以保留这一行
         self.llm.resize_token_embeddings(vocab_size)
 
@@ -589,7 +605,7 @@ class MolLLaMA(MolLLaMAPreTrainedModel):
         self.encoder.text_proj = None
         self.encoder.gtm_head = None
 
-    def forward(self, graph_batch, text_batch):
+    def forward(self, graph_batch, text_batch, other_infos=None):
         _, _, query_output = self.encoder.graph_forward(graph_batch)      
         query_output = self.llm_proj(query_output.last_hidden_state) #[batch_size,num_query_token,dim]
 
@@ -626,6 +642,8 @@ class MolLLaMA(MolLLaMAPreTrainedModel):
         temperature=None,
         pad_token_id=None,
         eos_token_id=None,
+        brics_gids=None,
+        entropy_gids=None,
     ):
         _, _, query_output = self.encoder.graph_forward(graph_batch)
         query_output = self.llm_proj(query_output.last_hidden_state) #[batch_size,num_query_token,dim]
@@ -673,6 +691,8 @@ class MolLLaMA(MolLLaMAPreTrainedModel):
         temperature=None,
         pad_token_id=None,
         eos_token_id=None,
+        brics_gids=None,
+        entropy_gids=None,
     ):
         graph_batch = get_mol_graphs(smiles_list, self.encoder.unimol_dictionary, self.device)
         outputs = self.generate(

@@ -9,7 +9,7 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer, strategies
 import pytorch_lightning.callbacks as plc
-from pytorch_lightning.loggers import CSVLogger
+from pytorch_lightning.loggers import WandbLogger, CSVLogger
 
 from transformers import AutoTokenizer
 
@@ -91,9 +91,12 @@ def main(model_config, train_config, data_config):
         )
     else:
         raise ValueError(f"Task {data_config.task} not supported.")
-   
-    # model.mol_llama = model.mol_llama.from_pretrained(train_config.ckpt_path, torch_dtype=torch_dtype)
-    model.mol_llama.load_from_ckpt(train_config.ckpt_path)
+    
+    if not train_config.use_dq_encoder:
+        model.mol_llama = model.mol_llama.from_pretrained(train_config.ckpt_path, torch_dtype=torch_dtype)
+    else:
+        # model.mol_llama = model.mol_llama.from_pretrained(train_config.ckpt_path, torch_dtype=torch_dtype)
+        model.mol_llama.load_from_ckpt(train_config.ckpt_path)
     encoder = model.mol_llama.encoder
     model.mol_llama.llm.resize_token_embeddings(len(tokenizer))
     model.tokenizer = tokenizer
@@ -136,7 +139,10 @@ def main(model_config, train_config, data_config):
     else:
         strategy = 'auto'
     
-    logger = CSVLogger(save_dir=f'./checkpoints/{train_config.filename}/')
+    # logger = WandbLogger(project="MoleculeQA", name=train_config.filename)
+    csv_logger = CSVLogger(save_dir=f'./checkpoints/{train_config.filename}/')
+    # logger = [logger, csv_logger]
+    logger = csv_logger
 
     accelerator_arg = train_config.accelerator if detected_num_devices > 0 else 'cpu'
     devices_arg = detected_num_devices if detected_num_devices > 0 else 1
@@ -151,7 +157,8 @@ def main(model_config, train_config, data_config):
         callbacks=callbacks,
         strategy=strategy,
         logger=logger,
-        num_sanity_val_steps=0
+        num_sanity_val_steps=0,
+        log_every_n_steps=getattr(train_config, "log_every_n_steps", 2),
     )
 
     trainer.fit(model, datamodule=dm)

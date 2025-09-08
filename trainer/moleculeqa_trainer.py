@@ -72,7 +72,7 @@ class MoleculeQATrainer(pl.LightningModule):
                 torch_dtype = torch_dtype,
                 enable_flash = train_config.enable_flash,
                 freeze_llm = train_config.freeze_llm,
-            )
+            ).from_pretrained(train_config.ckpt_path)
 
         self.test_step_outputs = []
 
@@ -111,11 +111,12 @@ class MoleculeQATrainer(pl.LightningModule):
         batch_size = text_batch.input_ids.size(0)
         ###============== Overall Loss ===================###
         output = self.mol_llama(graph_batch, text_batch, other_infos)
-        loss = {'loss': output['loss']}
-        # Avoid per-step distributed reductions to reduce risk of NCCL allreduce timeouts
-        self.log("molecule loss", float(loss['loss']), batch_size=batch_size, sync_dist=False, prog_bar=True, on_step=False, on_epoch=True)
-        self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], batch_size=batch_size, sync_dist=False, on_step=False, on_epoch=True)
-        return loss['loss']
+        loss = output['loss']
+        # Show step-wise loss on the progress bar without cross-rank reduction
+        self.log("train_loss", loss, batch_size=batch_size, sync_dist=False, logger=True, prog_bar=True, on_step=True, on_epoch=False)
+        self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], batch_size=batch_size, sync_dist=False, on_step=True, on_epoch=False)
+        
+        return loss
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
@@ -403,11 +404,12 @@ class MoleculeGENQATrainer(pl.LightningModule):
         batch_size = text_batch.input_ids.size(0)
         ###============== Overall Loss ===================###
         output = self.mol_llama(graph_batch, text_batch, other_infos)
-        loss = {'loss': output['loss']}
+        loss = output['loss']
 
-        self.log("molecule loss", float(loss['loss']), batch_size=batch_size, sync_dist=True)
-        self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], batch_size=batch_size, sync_dist=True)
-        return loss['loss']
+        self.log("train_loss", loss, batch_size=batch_size, sync_dist=False, logger=True, prog_bar=True, on_step=True, on_epoch=False)
+        self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], batch_size=batch_size, sync_dist=False, on_step=True, on_epoch=False)
+
+        return loss
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
@@ -613,11 +615,12 @@ class MoleculePropertyQATrainer(pl.LightningModule):
         batch_size = text_batch.input_ids.size(0)
         ###============== Overall Loss ===================###
         output = self.mol_llama(graph_batch, text_batch, other_infos)
-        loss = {'loss': output['loss']}
+        loss = output['loss']
 
-        self.log("molecule loss", float(loss['loss']), batch_size=batch_size, sync_dist=True)
-        self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], batch_size=batch_size, sync_dist=True)
-        return loss['loss']
+        self.log("train_loss", loss, batch_size=batch_size, sync_dist=False, logger=True, prog_bar=True, on_step=True, on_epoch=False)
+        self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], batch_size=batch_size, sync_dist=False, on_step=True, on_epoch=False)
+
+        return loss
 
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
