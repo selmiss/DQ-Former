@@ -42,7 +42,7 @@ class Stage2Trainer(pl.LightningModule):
 
         # Choose model based on configuration
         if model_config.qformer_config.use_dq_encoder:
-            print("Using DQMolLLaMA")
+            print("Using DQMolLLaMA, enable_blending:", train_config.enable_blending)
             self.mol_llama = DQMolLLaMA(
                 config=model_config,
                 vocab_size=vocab_size,
@@ -52,6 +52,7 @@ class Stage2Trainer(pl.LightningModule):
                 freeze_llm = train_config.freeze_llm if train_config.freeze_llm else False,
                 brics_gids_enable = train_config.brics_gids_enable,
                 entropy_gids_enable = train_config.entropy_gids_enable,
+                enable_blending = train_config.enable_blending,
             )
         else:
             print("Using MolLLaMA")
@@ -62,6 +63,7 @@ class Stage2Trainer(pl.LightningModule):
                 enable_flash = train_config.enable_flash,
                 freeze_llm = train_config.freeze_llm if train_config.freeze_llm else False,
                 # add_ids = add_ids,
+                enable_blending = train_config.enable_blending,
             )
 
 
