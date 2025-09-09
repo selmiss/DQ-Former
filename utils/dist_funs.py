@@ -1,5 +1,6 @@
 
 from typing import Any, Iterable, Iterator, List, Optional, Sized, Tuple, Union, Dict
+import os
 
 import torch
 from torch import Tensor
@@ -97,6 +98,19 @@ class MyDeepSpeedStrategy(strategies.DeepSpeedStrategy):
         # dump states as a checkpoint dictionary object
         _exclude_keys = ["state_dict", "optimizer_states"]
         checkpoint = {k: v for k, v in checkpoint.items() if k not in _exclude_keys}
+
+    def load_checkpoint(self, checkpoint_path: _PATH) -> Dict[str, Any]:
+        """Allow resuming from a single-file Lightning checkpoint as well as DeepSpeed directory.
+
+        If ``checkpoint_path`` is a directory, defer to the parent ``DeepSpeedStrategy`` implementation
+        which expects a DeepSpeed-sharded checkpoint directory. If it's a file, load via ``CheckpointIO``.
+        """
+        # If a directory is provided, use the default DeepSpeed logic (expects deepspeed directory layout)
+        if isinstance(checkpoint_path, str) and os.path.isdir(checkpoint_path):
+            return super().load_checkpoint(checkpoint_path)
+
+        # Otherwise assume a single-file Lightning checkpoint
+        return self.checkpoint_io.load_checkpoint(checkpoint_path)
 
 @torch.no_grad()
 def pl_concat_all_gather(tensor, padding=False, fill_value=0):

@@ -9,7 +9,7 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer, strategies
 import pytorch_lightning.callbacks as plc
-from pytorch_lightning.loggers import WandbLogger
+# from pytorch_lightning.loggers import WandbLogger
 
 from transformers import AutoTokenizer
 
@@ -49,7 +49,7 @@ def edict_to_dict(config):
         return config
 
 # Added test_mode parameter
-def main(model_config, train_config, data_config, test_mode=False):
+def main(model_config, train_config, data_config, test_mode=False, resume_from=None):
     pl.seed_everything(0)
 
     tokenizer = AutoTokenizer.from_pretrained(
@@ -129,9 +129,9 @@ def main(model_config, train_config, data_config, test_mode=False):
         else:
             strategy = strategies.DDPStrategy(start_method='spawn')
     else:
-        strategy = 'auto'
+        strategy = MyDeepSpeedStrategy(stage=2)
     
-    logger = WandbLogger(project="Stage2", name=train_config.filename)
+    # logger = WandbLogger(project="Stage2", name=train_config.filename)
 
     trainer = Trainer(
         accelerator=train_config.accelerator,
@@ -143,10 +143,23 @@ def main(model_config, train_config, data_config, test_mode=False):
         accumulate_grad_batches=train_config.accumulate_grad_batches,
         callbacks=callbacks,
         strategy=strategy,
-        logger=logger,
+        logger=None,
     )
 
-    trainer.fit(model, datamodule=dm)
+    # Optionally resume from a checkpoint
+    ckpt_path = None
+    if resume_from is not None:
+        if resume_from == 'last':
+            candidate = os.path.join("checkpoints", train_config.filename, "last.ckpt")
+            ckpt_path = candidate if os.path.exists(candidate) else None
+        else:
+            ckpt_path = resume_from if os.path.exists(resume_from) else None
+
+    if ckpt_path is not None:
+        print(f"Resuming from checkpoint: {ckpt_path}")
+        trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path)
+    else:
+        trainer.fit(model, datamodule=dm)
 
 # ----------------- Entry point -----------------
 if __name__ == '__main__':
@@ -154,6 +167,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_config_path', type=str, default='configs/stage2/train_config.yaml')
     parser.add_argument('--data_config_path', type=str, default='configs/stage2/data_config.yaml')
     parser.add_argument('--test_mode', default=False, action='store_true', help='Use small dataset for testing')
+    parser.add_argument('--resume_from', type=str, default=None, help='Checkpoint path or "last" to resume from latest')
 
     args = parser.parse_args()
 
@@ -173,5 +187,5 @@ if __name__ == '__main__':
 
     if args.test_mode:
         print('TEST MODE: Using small dataset for quick testing')
-    main(model_config, train_config, data_config, test_mode=args.test_mode)
+    main(model_config, train_config, data_config, test_mode=args.test_mode, resume_from=args.resume_from)
 

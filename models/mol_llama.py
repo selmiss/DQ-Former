@@ -89,16 +89,20 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         freeze_llm=False,
         brics_gids_enable=False,
         entropy_gids_enable=False,
+        enable_blending=False,
     ):
         super().__init__(config)
 
         ## Intialize encoder
+        if enable_blending:
+            config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
         self.encoder = DQMolLLaMAEncoder(
             graph_encoder_config = config.graph_encoder_config,
             blending_module_config = config.blending_module_config,
             qformer_config = config.qformer_config,
             brics_gids_enable = brics_gids_enable,
             entropy_gids_enable = entropy_gids_enable,
+            enable_blending = enable_blending,
         )
         self.local_q_only = local_q_only
         self.brics_gids_enable = brics_gids_enable
@@ -497,7 +501,8 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
 
         # 提取 encoder 的参数
         state_dict = {k[8:]: v for k, v in state_dict_raw.items() if k.startswith("encoder.")}
-
+        # print(f"state_dict: {state_dict.keys()}")
+        # print(f"self.encoder.state_dict().keys(): {self.encoder.state_dict().keys()}")
         missing_keys, unexpected_keys = self.encoder.load_state_dict(state_dict, strict=False)
         assert len(unexpected_keys) == 0, f"unexpected keys: {unexpected_keys}"
         for k in missing_keys:
