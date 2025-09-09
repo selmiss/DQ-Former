@@ -68,9 +68,11 @@ class BlendingModuleConfig(PretrainedConfig):
         self,
         num_layers=4,
         num_heads=8,
+        enable_blending=None,
         **kwargs
     ):
         super().__init__(**kwargs)
+        self.enable_blending = enable_blending if enable_blending is not None else False
         self.num_layers = num_layers
         self.num_heads = num_heads
 
@@ -152,9 +154,8 @@ class MolLLaMAConfig(PretrainedConfig):
 
 
         if graph_encoder_config is None:
-            graph_encoder_config = {}
-        
-        graph_encoder_config = {'encoder_types': ['unimol'], 'local_q_only': graph_encoder_config.get('local_q_only', False)}
+            graph_encoder_config = {'encoder_types': ['unimol'], 'local_q_only': False}
+                
 
         if llm_config is None:
             llm_config = {}

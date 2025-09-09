@@ -1,6 +1,6 @@
 # Defined ignore files
 envs/
-pampa/
+/pampa/
 init_env_mine.sh
 wandb/
 data/

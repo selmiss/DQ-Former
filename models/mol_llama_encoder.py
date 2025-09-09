@@ -81,13 +81,6 @@ class MolLLaMAEncoder(nn.Module):
         self.graph_proj, self.text_proj, self.gtm_head = \
                     self.init_projectors(self.Qformer.config.hidden_size, qformer_config.embed_dim)
 
-        # Add projection layer for dimension mismatch when blending is disabled
-        if not enable_blending:
-            # MoleculeSTM outputs 300 dims, Qformer expects 512 dims
-            self.dim_projection = None
-        else:
-            self.dim_projection = None
-
         self.temperature = temperature
 
     def init_graph_encoder(self, encoder_type, graph_encoder_config, tune_gnn):
@@ -227,26 +220,21 @@ class MolLLaMAEncoder(nn.Module):
 
     def graph_forward(self, graph_batch):
         batch_nodes, batch_masks = {}, {}
+
         for encoder_type in self.encoder_types:
-            # if encoder_type == 'unimol':
-            #     continue
             batch_node, batch_mask = self.graph_encoder[encoder_type](**graph_batch[encoder_type])
             batch_node = self.ln_graph[encoder_type](batch_node)
 
             batch_nodes[encoder_type] = batch_node
             batch_masks[encoder_type] = batch_mask
 
-        # import pdb; pdb.set_trace()
+        # Change graph dim 300 to Q-Former's 512
         if self.enable_blending:
             batch_node, batch_mask, _ = self.blending_module(batch_nodes, batch_masks)
         else:
-            # When blending is disabled, use MoleculeSTM (since that's what we want)
+            # When blending is disabled, use UniMol (since that's what we want)
             batch_node = batch_nodes['unimol']
             batch_mask = batch_masks['unimol']
-            
-            # Apply dimension projection if needed (MoleculeSTM 300 -> 512)
-            # if self.dim_projection is not None:
-            #     batch_node = self.dim_projection(batch_node)
 
         query_tokens = self.query_tokens.expand(batch_node.shape[0], -1, -1)
         query_output = self.Qformer.bert(

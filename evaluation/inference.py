@@ -57,13 +57,9 @@ def main(args):
             qformer_config = config.qformer_config,
         )
     else:
-        model = MolLLaMA(
-            config=config,
-            vocab_size=len(tokenizer),
-            torch_dtype="float16",
-            enable_flash=True
-        )
-        model.load_from_ckpt(args.qformer_path)
+        config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
+        model = MolLLaMA.from_pretrained(args.pretrained_model_name_or_path, vocab_size=len(tokenizer))
+        # model.load_from_ckpt(args.qformer_path)
         encoder = model.encoder
 
 

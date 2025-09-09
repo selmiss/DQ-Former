@@ -66,6 +66,7 @@ class MoleculeQATrainer(pl.LightningModule):
                 entropy_gids_enable = train_config.entropy_gids_enable,
             )
         else:
+            model_config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
             self.mol_llama = MolLLaMA(
                 config=model_config,
                 vocab_size=vocab_size,

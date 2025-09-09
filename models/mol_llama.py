@@ -520,6 +520,7 @@ class MolLLaMA(MolLLaMAPreTrainedModel):
             graph_encoder_config = config.graph_encoder_config,
             blending_module_config = config.blending_module_config,
             qformer_config = config.qformer_config,
+            enable_blending = True,
         )
         self.postprocess_encoder()
         ## Initialize LLM

@@ -151,6 +151,9 @@ if __name__ == '__main__':
         qformer_config={'use_flash_attention': train_config.use_flash_attention, 'use_dq_encoder': train_config.use_dq_encoder},  # Enable Flash Attention for Qformer
         graph_encoder_config={'local_q_only': train_config.local_q_only}
     )
+    if train_config.enable_blending:
+        model_config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
+        print(f"Causion: Using blending module" + "-"*10)
 
     print('-'*60)
     print(f'batch_size: {data_config.batch_size}\tnum_devices: {len(train_config.devices)}\taccumulate_grad_batches: {train_config.accumulate_grad_batches}')
