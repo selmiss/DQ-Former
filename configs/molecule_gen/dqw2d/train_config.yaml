@@ -24,4 +24,5 @@ freeze_llm: False
 brics_gids_enable: True
 entropy_gids_enable: True
 enable_blending: True
+zero_shot: False
 

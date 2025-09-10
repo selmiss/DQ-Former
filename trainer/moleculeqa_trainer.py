@@ -143,12 +143,12 @@ class MoleculeQATrainer(pl.LightningModule):
                 no_format_indices.append(idx)
                 new_texts.append(original_text + generated_text + "\n\nAnswer: ")
         if len(no_format_indices) > 0:
-            # new_graph_batch = {"unimol": {}, "moleculestm": {}}
-            new_graph_batch = {"unimol": {}}
+            new_graph_batch = {"unimol": {}, "moleculestm": {}}
+            # new_graph_batch = {"unimol": {}}
             new_text_batch = {}
             for k, v in graph_batch['unimol'].items():
                 new_graph_batch['unimol'][k] = v[no_format_indices]
-            #  new_graph_batch['moleculestm'] = Batch.from_data_list(graph_batch['moleculestm'].index_select(no_format_indices))
+            new_graph_batch['moleculestm'] = Batch.from_data_list(graph_batch['moleculestm'].index_select(no_format_indices))
 
             new_text_batch = self.tokenizer(
                 new_texts,
@@ -226,12 +226,12 @@ class MoleculeQATrainer(pl.LightningModule):
                 no_format_indices.append(idx)
                 new_texts.append(original_text + generated_text + "\n\nAnswer: ")
         if len(no_format_indices) > 0:
-            # new_graph_batch = {"unimol": {}, "moleculestm": {}}
-            new_graph_batch = {"unimol": {}}
+            new_graph_batch = {"unimol": {}, "moleculestm": {}}
+            # new_graph_batch = {"unimol": {}}
             new_text_batch = {}
             for k, v in graph_batch['unimol'].items():
                 new_graph_batch['unimol'][k] = v[no_format_indices]
-            # new_graph_batch['moleculestm'] = Batch.from_data_list(graph_batch['moleculestm'].index_select(no_format_indices))
+            new_graph_batch['moleculestm'] = Batch.from_data_list(graph_batch['moleculestm'].index_select(no_format_indices))
 
             new_text_batch = self.tokenizer(
                 new_texts,

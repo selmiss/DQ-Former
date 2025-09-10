@@ -27,13 +27,16 @@ def smiles2graph(smiles_string):
 
     # atoms
     atom_features_list = []
-    for atom in mol.GetAtoms():
-        atom_features_list.append(atom_to_feature_vector(atom))
-    x = np.array(atom_features_list, dtype = np.int64)
+    if mol is not None:
+        for atom in mol.GetAtoms():
+            atom_features_list.append(atom_to_feature_vector(atom))
+        x = np.array(atom_features_list, dtype = np.int64)
+    else:
+        x = np.zeros((1, 9), dtype = np.int64)
 
     # bonds
     num_bond_features = 3  # bond type, bond stereo, is_conjugated
-    if len(mol.GetBonds()) > 0: # mol has bonds
+    if mol is not None and len(mol.GetBonds()) > 0: # mol has bonds
         edges_list = []
         edge_features_list = []
         for bond in mol.GetBonds():
@@ -133,7 +136,9 @@ class MolDataset_cid(Dataset):
             for smiles in smiles_list:
                 graph = smiles2graph(smiles)
                 data_graph['moleculestm'].append(Data(x=graph['node_feat'], 
-                                        edge_index=graph['edge_index'], 
-                                        edge_attr=graph['edge_feat']))
+                                    edge_index=graph['edge_index'], 
+                                    edge_attr=graph['edge_feat']))
+                    
+
 
         return data_graph, data

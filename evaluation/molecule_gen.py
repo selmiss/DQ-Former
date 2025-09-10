@@ -169,12 +169,13 @@ def main(model_config, train_config, data_config, resume_from=None):
             ckpt_path = candidate if os.path.exists(candidate) else None
         else:
             ckpt_path = resume_from if os.path.exists(resume_from) else None
-
-    if ckpt_path is not None:
-        print(f"Resuming from checkpoint: {ckpt_path}")
-        trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path)
-    else:
-        trainer.fit(model, datamodule=dm)
+    
+    if train_config.zero_shot is None or train_config.zero_shot == False:
+        if ckpt_path is not None:
+            print(f"Resuming from checkpoint: {ckpt_path}")
+            trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path)
+        else:
+            trainer.fit(model, datamodule=dm)
     trainer.test(model, datamodule=dm)
 
 

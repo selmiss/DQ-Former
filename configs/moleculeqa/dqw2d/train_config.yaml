@@ -25,4 +25,5 @@ brics_gids_enable: True
 entropy_gids_enable: True
 enable_blending: True
 log_every_n_steps: 2
+zero_shot: True
 

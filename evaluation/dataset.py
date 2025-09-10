@@ -136,6 +136,7 @@ class ZeroshotDataset(Dataset):
             get_unimol_data(data['atoms'], np.array(data['coordinates'][0]), self.unimol_dictionary))
 
         graphs = smiles2graph(data['smiles'])
+
         data_graphs['moleculestm'].append(
             Data(x=graphs['node_feat'], 
                 edge_index=graphs['edge_index'], 
