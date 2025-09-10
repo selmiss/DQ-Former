@@ -95,25 +95,37 @@ def main(model_config, train_config, data_config, test_mode=False):
                                          save_on_train_epoch_end=True)
     ]
     
-    if len(train_config.devices) > 1:
+    # if len(train_config.devices) > 1:
+    #     if train_config.strategy_name == 'deepspeed':
+    #         strategy = MyDeepSpeedStrategy(stage=2)
+    #     else:
+    #         strategy = strategies.DDPStrategy(start_method='spawn', find_unused_parameters=False)
+    # else:
+    #     strategy = 'auto'
+
+    detected_num_devices = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    if detected_num_devices > 1:
         if train_config.strategy_name == 'deepspeed':
             strategy = MyDeepSpeedStrategy(stage=2)
         else:
-            strategy = strategies.DDPStrategy(start_method='spawn', find_unused_parameters=False)
+            strategy = strategies.DDPStrategy(start_method='spawn')
     else:
-        strategy = 'auto'
+        strategy = MyDeepSpeedStrategy(stage=2)
         
     logger = CSVLogger(save_dir=f'./checkpoints/{train_config.filename}/')
     wandb_logger = WandbLogger(
         project="stage1_v2",              # 项目名
         name=train_config.filename,    # 实验名，可用 checkpoint 名作为 run name
         log_model=False,               # 是否自动上传模型
+        mode="offline",                # 使用离线模式
     )
     logger = [logger, wandb_logger]
+
+    devices_arg = detected_num_devices if detected_num_devices > 0 else 1
     # profiler = AdvancedProfiler(dirpath="prof_log", filename="perf.txt")
     trainer = Trainer(
         accelerator=train_config.accelerator,
-        devices=train_config.devices,
+        devices=devices_arg,
         precision=train_config.precision,
         max_epochs=train_config.max_epochs,
         accumulate_grad_batches=train_config.accumulate_grad_batches,
@@ -156,8 +168,8 @@ if __name__ == '__main__':
         print(f"Causion: Using blending module" + "-"*10)
 
     print('-'*60)
-    print(f'batch_size: {data_config.batch_size}\tnum_devices: {len(train_config.devices)}\taccumulate_grad_batches: {train_config.accumulate_grad_batches}')
-    print(f'Total batch size: {data_config.batch_size * len(train_config.devices) * train_config.accumulate_grad_batches}')
+    print(f'batch_size: {data_config.batch_size}\tnum_devices: {torch.cuda.device_count() if torch.cuda.is_available() else 0}\taccumulate_grad_batches: {train_config.accumulate_grad_batches}')
+    print(f'Total batch size: {data_config.batch_size * torch.cuda.device_count() if torch.cuda.is_available() else 0 * train_config.accumulate_grad_batches}')
     if args.test_mode:
         print('TEST MODE: Using small dataset for quick testing')
     print('-'*60)

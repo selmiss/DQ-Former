@@ -2,9 +2,6 @@ filename: stage1_dqw2d
 
 strategy_name: deepspeed
 accelerator: gpu
-devices:
-  - 0
-  - 1
 precision: bf16-mixed
 max_epochs: 6
 check_val_every_n_epoch: 1
