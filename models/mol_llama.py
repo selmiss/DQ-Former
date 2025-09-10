@@ -471,6 +471,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
 
         ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
         state_dict = {k[10:]:v for k,v in ckpt['state_dict'].items() if k.startswith("mol_llama.")}
+
         missing_keys, unexpected_keys = self.load_state_dict(state_dict, strict=False)
         assert len(unexpected_keys) == 0, f"unexpected keys: {unexpected_keys}"
         for k in missing_keys:

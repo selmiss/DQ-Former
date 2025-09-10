@@ -137,7 +137,7 @@ def main(model_config, train_config, data_config):
         else:
             strategy = strategies.DDPStrategy(start_method='spawn')
     else:
-        strategy = 'auto'
+        strategy = MyDeepSpeedStrategy(stage=2)
     
     # logger = WandbLogger(project="MoleculeQA", name=train_config.filename)
     csv_logger = CSVLogger(save_dir=f'./checkpoints/{train_config.filename}/')

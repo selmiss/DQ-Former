@@ -9,7 +9,7 @@ import torch
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer, strategies
 import pytorch_lightning.callbacks as plc
-# from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import WandbLogger
 
 from transformers import AutoTokenizer
 
@@ -131,7 +131,7 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
     else:
         strategy = MyDeepSpeedStrategy(stage=2)
     
-    # logger = WandbLogger(project="Stage2", name=train_config.filename)
+    logger = WandbLogger(project="Stage2", name=train_config.filename)
 
     trainer = Trainer(
         accelerator=train_config.accelerator,
@@ -143,7 +143,7 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
         accumulate_grad_batches=train_config.accumulate_grad_batches,
         callbacks=callbacks,
         strategy=strategy,
-        logger=None,
+        logger=logger,
     )
 
     # Optionally resume from a checkpoint

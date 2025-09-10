@@ -64,6 +64,7 @@ class MoleculeQATrainer(pl.LightningModule):
                 freeze_llm = train_config.freeze_llm,
                 brics_gids_enable = train_config.brics_gids_enable,
                 entropy_gids_enable = train_config.entropy_gids_enable,
+                enable_blending = train_config.enable_blending,
             )
         else:
             model_config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
@@ -358,6 +359,7 @@ class MoleculeGENQATrainer(pl.LightningModule):
                 freeze_llm = train_config.freeze_llm,
                 brics_gids_enable = train_config.brics_gids_enable,
                 entropy_gids_enable = train_config.entropy_gids_enable,
+                enable_blending = train_config.enable_blending,
             )
         else:
             self.mol_llama = MolLLaMA(
@@ -569,6 +571,7 @@ class MoleculePropertyQATrainer(pl.LightningModule):
                 freeze_llm = train_config.freeze_llm,
                 brics_gids_enable = train_config.brics_gids_enable,
                 entropy_gids_enable = train_config.entropy_gids_enable,
+                enable_blending = train_config.enable_blending,
             )
         else:
             self.mol_llama = MolLLaMA(
