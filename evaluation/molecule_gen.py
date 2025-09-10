@@ -47,7 +47,7 @@ def edict_to_dict(config):
     else:
         return config
 
-def main(model_config, train_config, data_config):
+def main(model_config, train_config, data_config, resume_from=None):
     pl.seed_everything(0)
     
     tokenizer = AutoTokenizer.from_pretrained(
@@ -161,7 +161,20 @@ def main(model_config, train_config, data_config):
         log_every_n_steps=getattr(train_config, "log_every_n_steps", 2),
     )
 
-    trainer.fit(model, datamodule=dm)
+    # Optionally resume from a checkpoint (same behavior as stage2.py)
+    ckpt_path = None
+    if resume_from is not None:
+        if resume_from == 'last':
+            candidate = os.path.join("checkpoints", train_config.filename, "last.ckpt")
+            ckpt_path = candidate if os.path.exists(candidate) else None
+        else:
+            ckpt_path = resume_from if os.path.exists(resume_from) else None
+
+    if ckpt_path is not None:
+        print(f"Resuming from checkpoint: {ckpt_path}")
+        trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path)
+    else:
+        trainer.fit(model, datamodule=dm)
     trainer.test(model, datamodule=dm)
 
 
@@ -169,6 +182,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='MoleculeQA Training or Test')
     parser.add_argument('--train_config_path', type=str, default='configs/moleculeqa/train_config.yaml')
     parser.add_argument('--data_config_path', type=str, default='configs/moleculeqa/data_config.yaml')
+    parser.add_argument('--resume_from', type=str, default=None, help='Checkpoint path or "last" to resume from latest')
 
     args = parser.parse_args()
 
@@ -182,5 +196,5 @@ if __name__ == '__main__':
     print(f'Total batch size: {data_config.batch_size * max(1, detected_num_devices) * train_config.accumulate_grad_batches}')
     print('-'*60)
 
-    main( model_config, train_config, data_config )
+    main(model_config, train_config, data_config, resume_from=args.resume_from)
 
