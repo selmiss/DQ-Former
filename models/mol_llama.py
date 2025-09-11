@@ -119,6 +119,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
 
         # -------------------------- train llm ----------------------------------
         if not freeze_llm:
+            logger.info(f"Loading LLM model: {config.llm_config.llm_model}")
             if enable_flash:
                 self.llm = LlamaForCausalLM.from_pretrained(config.llm_config.llm_model, torch_dtype=torch_dtype, 
                                                                 attn_implementation="flash_attention_2")
@@ -142,6 +143,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
 
         else:
         # 1. 加载基座模型
+            logger.info(f"Loading LLM model: {config.llm_config.llm_model}")
             self.llm = LlamaForCausalLM.from_pretrained(
                 config.llm_config.llm_model,
                 # quantization_config=bnb_config,

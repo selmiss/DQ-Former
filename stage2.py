@@ -65,6 +65,9 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
     mol_id = tokenizer.convert_tokens_to_ids("<mol>")
     pad_id = tokenizer.convert_tokens_to_ids("[PAD]")
 
+    if getattr(train_config, 'llm_backbone', None) is not None:
+        model_config.llm_config.llm_model = train_config.llm_backbone
+
     model = Stage2Trainer(
         vocab_size = len(tokenizer), 
         model_config = model_config, 
@@ -101,7 +104,9 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
         llama_version = 'llama2'
     elif 'Llama-3' in model_config.llm_config.llm_model:
         llama_version = 'llama3'
-    
+    elif 'Qwen3' in model_config.llm_config.llm_model:
+        llama_version = 'qwen3'
+        
     dm = Stage2DM(
         tokenizer=tokenizer,
         llama_version=llama_version,
