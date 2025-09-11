@@ -14,6 +14,7 @@ from pytorch_lightning.loggers import WandbLogger, CSVLogger
 from transformers import AutoTokenizer
 
 from utils.configuration_mol_llama import MolLLaMAConfig
+from models.DQ_former_encoder import DQMolLLaMAEncoder
 from data_provider.moleculeqa_dataset import MoleculeQADM
 from trainer.moleculeqa_trainer import MoleculeGENQATrainer, MoleculeQATrainer, MoleculePropertyQATrainer
 
@@ -50,12 +51,25 @@ def edict_to_dict(config):
 def main(model_config, train_config, data_config, resume_from=None):
     pl.seed_everything(0)
     
-    tokenizer = AutoTokenizer.from_pretrained(
-        'DongkiKim/Mol-Llama-3.1-8B-Instruct',
-        # model_config.llm_config.llm_model, 
-        use_fast=False, 
-        padding_side='left'
-    )
+    # Check if using LLM baseline mode
+    use_llm_baseline = getattr(train_config, 'llm_baseline', False)
+    
+    if use_llm_baseline:
+        # LLM baseline mode - use specified model path
+        print(f"Using LLM baseline with model: {train_config.llm_model_path}")
+        tokenizer = AutoTokenizer.from_pretrained(
+            train_config.llm_model_path,
+            padding_side='left'
+        )
+    else:
+        # Standard molecular mode - use default model
+        print("Using standard molecular mode")
+        tokenizer = AutoTokenizer.from_pretrained(
+            'DongkiKim/Mol-Llama-3.1-8B-Instruct',
+            # model_config.llm_config.llm_model, 
+            use_fast=False, 
+            padding_side='left'
+        )
     tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     tokenizer.add_special_tokens({'additional_special_tokens': ["<mol>"]})
     tokenizer.mol_token_id = tokenizer("<mol>", add_special_tokens=False).input_ids[0]
@@ -66,7 +80,7 @@ def main(model_config, train_config, data_config, resume_from=None):
         raise NotImplementedError(f"Precision {train_config.precision} not supported.")
 
     if data_config.task == 'property':
-        model = MoleculePropertyQATrainer(
+        cus_model = MoleculePropertyQATrainer(
             vocab_size = len(tokenizer), 
             model_config = model_config, 
             train_config = train_config,
@@ -74,7 +88,7 @@ def main(model_config, train_config, data_config, resume_from=None):
             torch_dtype = torch_dtype
         )
     elif data_config.task == 'caption':   
-        model = MoleculeGENQATrainer(
+        cus_model = MoleculeGENQATrainer(
             vocab_size = len(tokenizer), 
             model_config = model_config, 
             train_config = train_config,
@@ -82,7 +96,7 @@ def main(model_config, train_config, data_config, resume_from=None):
             torch_dtype = torch_dtype
         )
     elif data_config.task == 'qa':
-        model = MoleculeQATrainer(
+        cus_model = MoleculeQATrainer(
             vocab_size = len(tokenizer), 
             model_config = model_config,    
             train_config = train_config,
@@ -93,18 +107,32 @@ def main(model_config, train_config, data_config, resume_from=None):
         raise ValueError(f"Task {data_config.task} not supported.")
     
     if not train_config.use_dq_encoder:
-        model.mol_llama = model.mol_llama.from_pretrained(train_config.ckpt_path, torch_dtype=torch_dtype)
+        cus_model.model = cus_model.model.from_pretrained(train_config.ckpt_path, torch_dtype=torch_dtype)
+    elif not getattr(train_config, 'llm_baseline', False):
+        # trainer.model = trainer.model.from_pretrained(train_config.ckpt_path, torch_dtype=torch_dtype)
+        # This is Mol-llama settings
+        cus_model.model.load_from_ckpt(train_config.ckpt_path)
+        encoder = cus_model.model.encoder
+    elif getattr(train_config, 'llm_baseline', False):
+        encoder = DQMolLLaMAEncoder(
+            graph_encoder_config = model_config.graph_encoder_config,
+            blending_module_config = model_config.blending_module_config,
+            qformer_config = model_config.qformer_config,
+            brics_gids_enable = train_config.brics_gids_enable,
+            entropy_gids_enable = train_config.entropy_gids_enable,
+            enable_blending = train_config.enable_blending,
+        )
+    if getattr(train_config, 'llm_baseline', False):
+        cus_model.model.resize_token_embeddings(len(tokenizer))
     else:
-        # model.mol_llama = model.mol_llama.from_pretrained(train_config.ckpt_path, torch_dtype=torch_dtype)
-        model.mol_llama.load_from_ckpt(train_config.ckpt_path)
-    encoder = model.mol_llama.encoder
-    model.mol_llama.llm.resize_token_embeddings(len(tokenizer))
-    model.tokenizer = tokenizer
+        cus_model.model.llm.resize_token_embeddings(len(tokenizer))
+
+    cus_model.tokenizer = tokenizer
 
     args = {'train': edict_to_dict(train_config), 
             'model': edict_to_dict(model_config), 
             'data': edict_to_dict(data_config)}
-    model.save_hyperparameters(args)
+    cus_model.save_hyperparameters(args)
 
     if 'Llama-2' in model_config.llm_config.llm_model:
         llama_version = 'llama2'
@@ -151,9 +179,11 @@ def main(model_config, train_config, data_config, resume_from=None):
         accelerator=accelerator_arg,
         devices=devices_arg,
         precision=train_config.precision,
-        max_epochs=train_config.max_epochs,
+        max_epochs=getattr(train_config, "max_epochs", None),
+        max_steps=getattr(train_config, "max_steps", None),
         accumulate_grad_batches=train_config.accumulate_grad_batches,
-        check_val_every_n_epoch=train_config.check_val_every_n_epoch,
+        check_val_every_n_epoch=getattr(train_config, "check_val_every_n_epoch", None),
+        val_check_interval=getattr(train_config, "val_check_interval", None),
         callbacks=callbacks,
         strategy=strategy,
         logger=logger,
@@ -173,10 +203,10 @@ def main(model_config, train_config, data_config, resume_from=None):
     if train_config.zero_shot is None or train_config.zero_shot == False:
         if ckpt_path is not None:
             print(f"Resuming from checkpoint: {ckpt_path}")
-            trainer.fit(model, datamodule=dm, ckpt_path=ckpt_path)
+            trainer.fit(cus_model, datamodule=dm, ckpt_path=ckpt_path)
         else:
-            trainer.fit(model, datamodule=dm)
-    trainer.test(model, datamodule=dm)
+            trainer.fit(cus_model, datamodule=dm)
+    trainer.test(cus_model, datamodule=dm)
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-filename: moleculeqa_dqw2d_step
+filename: moleculeqa_llm_baseline_qwen3
 ckpt_path: checkpoints/stage2_dqw2d/epoch=01.ckpt
 
 strategy_name: deepspeed
@@ -25,4 +25,8 @@ entropy_gids_enable: True
 enable_blending: True
 log_every_n_steps: 2
 zero_shot: False
+
+llm_baseline: True
+llm_model_path: unsloth/Qwen3-8B
+
 
