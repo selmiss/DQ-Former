@@ -17,6 +17,7 @@ tmp/
 baselines/
 lightning_logs/
 /lightning_logs/
+/srun/
 
 
 # Byte-compiled / optimized / DLL files
