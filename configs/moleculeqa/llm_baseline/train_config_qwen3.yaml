@@ -5,7 +5,7 @@ strategy_name: deepspeed
 accelerator: gpu
 precision: bf16-mixed
 max_steps: 100
-accumulate_grad_batches: 32 # 2 * 128
+accumulate_grad_batches: 64
 
 weight_decay: 0.05
 init_lr: 1.0e-4
