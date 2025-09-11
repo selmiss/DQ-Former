@@ -144,6 +144,40 @@ def tokenize_messages_mistral(messages, tokenizer):
 
     return BatchEncoding(data=tokenized)
     
+def tokenize_messages_gemma(messages, tokenizer):
+    tokenized = {
+        "input_ids": [],
+        "attention_mask": [],
+        "labels": []
+    }
+
+    for m in messages:
+        if m['role'] == 'system':
+            # Gemma chat template uses <start_of_turn>role ... <end_of_turn>
+            text = "<start_of_turn>system\n" + m['content'] + "<end_of_turn>\n"
+            ignored = True
+
+        elif m['role'] == 'user':
+            text = "<start_of_turn>user\n" + m['content'] + "<end_of_turn>\n"
+            text += "<start_of_turn>model\n"
+            ignored = True
+
+        elif m['role'] == 'assistant':
+            text = m['content'] + "<end_of_turn>\n"
+            ignored = False
+
+        tokenized_ = tokenizer(text, add_special_tokens=False)
+        tokenized["input_ids"].extend(tokenized_['input_ids'])
+        tokenized["attention_mask"].extend(tokenized_['attention_mask'])
+        if ignored:
+            tokenized['labels'].extend([-100] * len(tokenized_['input_ids']))
+        else:
+            tokenized['labels'].extend(tokenized_['input_ids'])
+
+    tokenized['mol_token_flag'] = [bool(t == tokenizer.mol_token_id) for t in tokenized['input_ids']]
+
+    return BatchEncoding(data=tokenized)
+    
 def tokenized_messages(messages, tokenizer, llama_type):
 
     if llama_type == 'llama2':
@@ -154,8 +188,10 @@ def tokenized_messages(messages, tokenizer, llama_type):
         return tokenize_messages_qwen3(messages, tokenizer)
     elif llama_type in ('mistral', 'mistral8b'):
         return tokenize_messages_mistral(messages, tokenizer)
+    elif llama_type == 'gemma':
+        return tokenize_messages_gemma(messages, tokenizer)
     else:
-        raise ValueError("Unsupported model type. Choose 'llama2', 'llama3', 'qwen3', 'mistral', or 'mistral8b'.")
+        raise ValueError("Unsupported model type. Choose 'llama2', 'llama3', 'qwen3', 'mistral', 'mistral8b', or 'gemma'.")
 
 def batch_tokenize_messages_list(messages_list, tokenizer, llama_type, padding_side='left'):
     tokenized_list = []

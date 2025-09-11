@@ -135,13 +135,21 @@ def main(model_config, train_config, data_config, resume_from=None):
     cus_model.save_hyperparameters(args)
 
     if 'Llama-2' in model_config.llm_config.llm_model:
-        llama_version = 'llama2'
+        llm_version = 'llama2'
     elif 'Llama-3' in model_config.llm_config.llm_model:
-        llama_version = 'llama3'
+        llm_version = 'llama3'
+    elif 'Qwen3' in model_config.llm_config.llm_model:
+        llm_version = 'qwen3'
+    elif 'Ministral' in model_config.llm_config.llm_model:
+        llm_version = 'mistral'
+    elif 'gemma' in model_config.llm_config.llm_model:
+        llm_version = 'gemma'
+    else:
+        raise ValueError(f"Unsupported model type. Choose 'llama2', 'llama3', 'qwen3', 'mistral', or 'gemma'.")
     
     dm = MoleculeQADM(
         tokenizer=tokenizer,
-        llama_version=llama_version,
+        llama_version=llm_version,
         num_workers=data_config.num_workers,
         batch_size=data_config.batch_size,
         root=data_config.root,
