@@ -153,11 +153,12 @@ def main(model_config, train_config, data_config, resume_from=None):
     
     callbacks = []
     callbacks.append(plc.ModelCheckpoint(dirpath="checkpoints/"+train_config.filename+"/", 
-                                         filename='{epoch:02d}', 
-                                         every_n_epochs=train_config.save_every_n_epochs, 
+                                        #  filename='{epoch:02d}', 
+                                        #  every_n_epochs=train_config.save_every_n_epochs, 
                                          save_last=True, 
                                          save_top_k=-1,
-                                         save_on_train_epoch_end=True))
+                                        #  save_on_train_epoch_end=True
+    ))
     detected_num_devices = torch.cuda.device_count() if torch.cuda.is_available() else 0
     if detected_num_devices > 1:
         if train_config.strategy_name == 'deepspeed':
