@@ -71,13 +71,91 @@ def tokenize_messages_llama3(messages, tokenizer):
 
     return BatchEncoding(data=tokenized)
 
+def tokenize_messages_qwen3(messages, tokenizer):
+    tokenized = {
+        "input_ids": [],
+        "attention_mask": [],
+        "labels": []
+    }
+
+    for m in messages:
+        if m['role'] == 'system':
+            # ChatML-style system header
+            text = "<|im_start|>system\n" + m['content'] + "<|im_end|>\n"
+            ignored = True
+
+        elif m['role'] == 'user':
+            # User turn followed by assistant header expecting completion
+            text = "<|im_start|>user\n" + m['content'] + "<|im_end|>\n"
+            text += "<|im_start|>assistant\n"
+            ignored = True
+
+        elif m['role'] == 'assistant':
+            # Assistant content ends with end tag
+            text = m['content'] + "<|im_end|>\n"
+            ignored = False
+
+        tokenized_ = tokenizer(text, add_special_tokens=False)
+        tokenized["input_ids"].extend(tokenized_['input_ids'])
+        tokenized["attention_mask"].extend(tokenized_['attention_mask'])
+        if ignored:
+            tokenized['labels'].extend([-100] * len(tokenized_['input_ids']))
+        else:
+            tokenized['labels'].extend(tokenized_['input_ids'])
+
+    tokenized['mol_token_flag'] = [bool(t == tokenizer.mol_token_id) for t in tokenized['input_ids']]
+
+    return BatchEncoding(data=tokenized)
+
+def tokenize_messages_mistral(messages, tokenizer):
+    tokenized = {
+        "input_ids": [],
+        "attention_mask": [],
+        "labels": []
+    }
+
+    for idx, m in enumerate(messages):
+        if m['role'] == 'system':
+            # Mistral chat follows LLaMA2-style [INST] blocks; include optional system prompt
+            text = "<s>[INST] <<SYS>>\n" + m['content'] + "\n<</SYS>>\n\n"
+            ignored = True
+
+        elif m['role'] == 'user':
+            # Close the initial [INST] on the first user turn, then open/close per turn
+            if idx == 1:
+                text = m['content'] + "[/INST]\n\n"
+            else:
+                text = "\n<s>[INST] " + m['content'] + " [/INST]\n\n"
+            ignored = True
+
+        elif m['role'] == 'assistant':
+            text = m['content'] + "</s>"
+            ignored = False
+
+        tokenized_ = tokenizer(text, add_special_tokens=False)
+        tokenized["input_ids"].extend(tokenized_['input_ids'])
+        tokenized["attention_mask"].extend(tokenized_['attention_mask'])
+        if ignored:
+            tokenized['labels'].extend([-100] * len(tokenized_['input_ids']))
+        else:
+            tokenized['labels'].extend(tokenized_['input_ids'])
+
+    tokenized['mol_token_flag'] = [bool(t == tokenizer.mol_token_id) for t in tokenized['input_ids']]
+
+    return BatchEncoding(data=tokenized)
+    
 def tokenized_messages(messages, tokenizer, llama_type):
+
     if llama_type == 'llama2':
         return tokenize_messages_llama2(messages, tokenizer)
     elif llama_type == 'llama3':
         return tokenize_messages_llama3(messages, tokenizer)
+    elif llama_type == 'qwen3':
+        return tokenize_messages_qwen3(messages, tokenizer)
+    elif llama_type in ('mistral', 'mistral8b'):
+        return tokenize_messages_mistral(messages, tokenizer)
     else:
-        raise ValueError("Unsupported Llama type. Choose 'llama2' or 'llama3'.")
+        raise ValueError("Unsupported model type. Choose 'llama2', 'llama3', 'qwen3', 'mistral', or 'mistral8b'.")
 
 def batch_tokenize_messages_list(messages_list, tokenizer, llama_type, padding_side='left'):
     tokenized_list = []

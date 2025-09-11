@@ -106,6 +106,8 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
         llama_version = 'llama3'
     elif 'Qwen3' in model_config.llm_config.llm_model:
         llama_version = 'qwen3'
+    elif 'Ministral' in model_config.llm_config.llm_model:
+        llama_version = 'mistral'
         
     dm = Stage2DM(
         tokenizer=tokenizer,
@@ -136,7 +138,14 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
     else:
         strategy = MyDeepSpeedStrategy(stage=2)
     
-    logger = WandbLogger(project="Stage2", name=train_config.filename)
+
+    logger = WandbLogger(
+        project="Stage2", 
+        name=train_config.filename,
+        log_model=False,
+        mode="offline",
+    )
+
 
     trainer = Trainer(
         accelerator=train_config.accelerator,

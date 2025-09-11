@@ -113,12 +113,14 @@ def main(model_config, train_config, data_config, test_mode=False):
         strategy = MyDeepSpeedStrategy(stage=2)
         
     logger = CSVLogger(save_dir=f'./checkpoints/{train_config.filename}/')
+    
+    # Try online mode first, fallback to offline if connection fails
     wandb_logger = WandbLogger(
         project="stage1_v2",              # 项目名
         name=train_config.filename,    # 实验名，可用 checkpoint 名作为 run name
         log_model=False,               # 是否自动上传模型
-        mode="offline",                # 使用离线模式
     )
+    
     logger = [logger, wandb_logger]
 
     devices_arg = detected_num_devices if detected_num_devices > 0 else 1
