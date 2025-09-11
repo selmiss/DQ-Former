@@ -7,7 +7,7 @@ from collections import defaultdict
 import torch
 from torch import optim
 import pytorch_lightning as pl
-from transformers import AutoTokenizer, BertTokenizerFast, LlamaForCausalLM
+from transformers import AutoTokenizer, BertTokenizerFast, LlamaForCausalLM, AutoModelForCausalLM
 from peft import LoraConfig, get_peft_model, TaskType
 from torch_geometric.data import Batch
 
@@ -59,17 +59,25 @@ class MoleculeQATrainer(pl.LightningModule):
         if train_config.get('llm_baseline', False):
             # LLM baseline - only use language model without molecular encoders
             print("Using LLM baseline (text-only)")
+            # Use AutoModelForCausalLM to support Gemma, Qwen, Mistral, LLaMA, etc.
             if train_config.enable_flash:
-                self.model = LlamaForCausalLM.from_pretrained(
-                    train_config.llm_model_path, 
-                    torch_dtype=torch_dtype,
-                    attn_implementation="flash_attention_2"
-                )
-                print("Using flash attention for LLM baseline")
+                try:
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        train_config.llm_model_path,
+                        torch_dtype=torch_dtype,
+                        attn_implementation="flash_attention_2",
+                    )
+                    print("Using flash attention for LLM baseline")
+                except TypeError:
+                    # Some architectures may not accept attn_implementation
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        train_config.llm_model_path,
+                        torch_dtype=torch_dtype,
+                    )
             else:
-                self.model = LlamaForCausalLM.from_pretrained(
-                    train_config.llm_model_path, 
-                    torch_dtype=torch_dtype
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    train_config.llm_model_path,
+                    torch_dtype=torch_dtype,
                 )
             
             self.model.resize_token_embeddings(vocab_size)
@@ -112,6 +120,25 @@ class MoleculeQATrainer(pl.LightningModule):
             ).from_pretrained(train_config.ckpt_path)
 
         self.test_step_outputs = []
+
+    def _get_eos_token_ids(self):
+        ids = []
+        try:
+            if getattr(self.tokenizer, 'eos_token_id', None) is not None:
+                ids.append(self.tokenizer.eos_token_id)
+        except Exception:
+            pass
+        # Try a few common end-of-turn markers across model families
+        for tok in ["<|eot_id|>", "<eos_token>", "<end_of_turn>", "<|endoftext|>"]:
+            try:
+                tid = self.tokenizer.convert_tokens_to_ids(tok)
+                if isinstance(tid, int) and tid >= 0:
+                    ids.append(tid)
+            except Exception:
+                continue
+        # De-duplicate while preserving order
+        ids = list(dict.fromkeys(ids))
+        return ids if len(ids) > 0 else None
 
     def load_from_ckpt(self, ckpt_path):
         self.model.load_from_ckpt(ckpt_path)
@@ -173,15 +200,18 @@ class MoleculeQATrainer(pl.LightningModule):
         
         if self.is_llm_baseline:
             # For LLM baseline, only use text for generation
-            responses = self.model.generate(
-                input_ids=text_batch.input_ids,
-                attention_mask=text_batch.attention_mask,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=[self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
-                max_new_tokens=512,
-                do_sample=True,
-                temperature=0.7
-            )
+            eos_ids = self._get_eos_token_ids()
+            gen_kwargs = {
+                'input_ids': text_batch.input_ids,
+                'attention_mask': text_batch.attention_mask,
+                'pad_token_id': self.tokenizer.pad_token_id,
+                'max_new_tokens': 512,
+                'do_sample': True,
+                'temperature': 0.7,
+            }
+            if eos_ids is not None:
+                gen_kwargs['eos_token_id'] = eos_ids
+            responses = self.model.generate(**gen_kwargs)
         else:
             # Standard molecular + text generation
             responses = self.model.generate(
@@ -270,15 +300,18 @@ class MoleculeQATrainer(pl.LightningModule):
         
         if self.is_llm_baseline:
             # For LLM baseline, only use text for generation
-            responses = self.model.generate(
-                input_ids=text_batch.input_ids,
-                attention_mask=text_batch.attention_mask,
-                pad_token_id=self.tokenizer.pad_token_id,
-                eos_token_id=[self.tokenizer.eos_token_id],
-                max_new_tokens=512,
-                do_sample=True,
-                temperature=0.7
-            )
+            eos_ids = self._get_eos_token_ids()
+            gen_kwargs = {
+                'input_ids': text_batch.input_ids,
+                'attention_mask': text_batch.attention_mask,
+                'pad_token_id': self.tokenizer.pad_token_id,
+                'max_new_tokens': 512,
+                'do_sample': True,
+                'temperature': 0.7,
+            }
+            if eos_ids is not None:
+                gen_kwargs['eos_token_id'] = eos_ids
+            responses = self.model.generate(**gen_kwargs)
         else:
             # Standard molecular + text generation
             responses = self.model.generate(
