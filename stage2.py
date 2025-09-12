@@ -52,11 +52,17 @@ def edict_to_dict(config):
 def main(model_config, train_config, data_config, test_mode=False, resume_from=None):
     pl.seed_everything(0)
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        'DongkiKim/Mol-Llama-3.1-8B-Instruct', 
-        # use_fast=False, 
-        padding_side='left'
-    )
+    if train_config.llm_backbone is not None:
+        tokenizer = AutoTokenizer.from_pretrained(
+            train_config.llm_backbone,
+            padding_side='left'
+        )
+    else:
+        tokenizer = AutoTokenizer.from_pretrained(
+            'DongkiKim/Mol-Llama-3.1-8B-Instruct', 
+            # use_fast=False, 
+            padding_side='left'
+        )
 
     tokenizer.add_special_tokens({'pad_token': '[PAD]'})
     tokenizer.add_special_tokens({'additional_special_tokens': ["<mol>"]})
@@ -74,6 +80,7 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
         train_config = train_config,
         add_ids = [mol_id, pad_id]
     )
+
 
     model.load_from_stage1_ckpt(train_config.stage1_path)
     
@@ -97,11 +104,11 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
         
     dm = Stage2DM(
         tokenizer=tokenizer,
-        llama_version=llm_version,
+        llm_version=llm_version,
         num_workers=data_config.num_workers,
         batch_size=data_config.batch_size,
         root=data_config.root,
-        unimol_dictionary=model.mol_llama.encoder.unimol_dictionary, 
+        unimol_dictionary=model.model.encoder.unimol_dictionary, 
         encoder_types=model_config.graph_encoder_config.encoder_types, 
         data_types=data_config.data_types,
         test_mode=test_mode,
@@ -116,7 +123,10 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
                                          save_last=True, 
                                          save_top_k=-1,
                                          save_on_train_epoch_end=True))
-    if len(train_config.devices) > 1:
+
+    detected_num_devices = torch.cuda.device_count() if torch.cuda.is_available() else 0
+
+    if detected_num_devices > 1:
         if train_config.strategy_name == 'deepspeed':
             strategy = MyDeepSpeedStrategy(stage=2)
         else:
@@ -132,10 +142,11 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
         mode="offline",
     )
 
-
+    accelerator_arg = train_config.accelerator if detected_num_devices > 0 else 'cpu'
+    devices_arg = detected_num_devices if detected_num_devices > 0 else 1
     trainer = Trainer(
-        accelerator=train_config.accelerator,
-        devices=train_config.devices,
+        accelerator=accelerator_arg,
+        devices=devices_arg,
         precision=train_config.precision,
         max_epochs=train_config.max_epochs,
         val_check_interval=train_config.val_check_interval,
@@ -177,8 +188,9 @@ if __name__ == '__main__':
     model_config = MolLLaMAConfig({'use_flash_attention': train_config.use_flash_attention, 'use_dq_encoder': train_config.use_dq_encoder})  # Enable Flash Attention for Qformer
 
     print('-'*60)
-    print(f'batch_size: {data_config.batch_size}\tnum_devices: {len(train_config.devices)}\taccumulate_grad_batches: {train_config.accumulate_grad_batches}')
-    print(f'Total batch size: {data_config.batch_size * len(train_config.devices) * train_config.accumulate_grad_batches}')
+    detected_num_devices = torch.cuda.device_count() if torch.cuda.is_available() else 0
+    print(f'batch_size: {data_config.batch_size}\tnum_devices: {detected_num_devices}\taccumulate_grad_batches: {train_config.accumulate_grad_batches}')
+    print(f'Total batch size: {data_config.batch_size * detected_num_devices * train_config.accumulate_grad_batches}')
     print('-'*60)
     print(f'Data Types:')
     for data_type in data_config.data_types:

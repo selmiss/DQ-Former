@@ -17,19 +17,25 @@ from collections import defaultdict
 
 class MoleculeQADataset(Dataset):
     def __init__(self, json_path, mol_path, unimol_dict, encoder_type, 
-                mol_type='mol', max_atoms=512, do_infer=False):
+                mol_type='mol', max_atoms=512, do_infer=False, limit_samples=None):
         super(MoleculeQADataset, self).__init__()
 
         data_list = json.load(open(mol_path, 'r'))
         self.mol_dataset = MolDataset_cid(data_list, unimol_dict, encoder_type, max_atoms)
         self.instruction_dataset = load_dataset("json", data_files=[json_path])['train'] 
+        # Apply an optional test mode by truncating to the first N instructions
+        if limit_samples is not None:
+            limit = max(0, int(limit_samples))
+            if limit < len(self.instruction_dataset):
+                self.instruction_dataset = self.instruction_dataset.select(range(limit))
         self.mol_prompt = "<mol><mol><mol><mol><mol><mol><mol><mol>"
         self.graph_prompt = "<graph>" * 28
         self.mol_type = mol_type
         self.do_infer = do_infer
 
     def __len__(self):
-        return len(self.mol_dataset)
+        # Drive length by the instruction dataset, which indexes mols by CID
+        return len(self.instruction_dataset)
 
     def __getitem__(self, index):
         text_data = self.instruction_dataset[index]
@@ -117,6 +123,9 @@ class MoleculeQADM(LightningDataModule):
             unimol_dictionary,
             encoder_types,
             mol_type='mol',
+            train_limit=None,
+            val_limit=None,
+            test_limit=None,
     ):
         super().__init__()
         self.tokenizer = tokenizer
@@ -132,7 +141,8 @@ class MoleculeQADM(LightningDataModule):
             unimol_dictionary,
             encoder_types,
             mol_type=mol_type,
-            do_infer=False
+            do_infer=False,
+            limit_samples=train_limit,
         )
 
         self.test_dataset = MoleculeQADataset(
@@ -142,6 +152,7 @@ class MoleculeQADM(LightningDataModule):
             encoder_types,
             mol_type=mol_type,
             do_infer=True,
+            limit_samples=test_limit,
         )
 
         self.val_dataset = MoleculeQADataset(
@@ -151,6 +162,7 @@ class MoleculeQADM(LightningDataModule):
             encoder_types,
             mol_type=mol_type,
             do_infer=True,
+            limit_samples=val_limit,
         )
     
     def train_dataloader(self):

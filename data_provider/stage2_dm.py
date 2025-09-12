@@ -18,9 +18,9 @@ from data_provider.tokenization_utils import batch_tokenize_messages_list
 
 
 class Stage2Collater:
-    def __init__(self, tokenizer, llama_version, pad_idx, encoder_types):
+    def __init__(self, tokenizer, llm_version, pad_idx, encoder_types):
         self.tokenizer = tokenizer
-        self.llama_version = llama_version
+        self.llm_version = llm_version
         self.encoder_types = encoder_types
         if 'unimol' in encoder_types:
             self.d3_collater = Mol3DCollater(pad_idx)
@@ -41,7 +41,7 @@ class Stage2Collater:
             graph_batch['moleculestm'] = Batch.from_data_list(data_moleculestm)
 
         tokenized = batch_tokenize_messages_list(messages_list, self.tokenizer, 
-                                                self.llama_version, padding_side='left')
+                                                self.llm_version, padding_side='left')
         text_batch = tokenized
 
         other_infos_ = defaultdict(list)
@@ -55,7 +55,7 @@ class Stage2DM(LightningDataModule):
     def __init__(
             self,
             tokenizer,
-            llama_version,
+            llm_version,
             num_workers,
             batch_size,
             root,
@@ -69,7 +69,7 @@ class Stage2DM(LightningDataModule):
     ):
         super().__init__()
         self.tokenizer = tokenizer
-        self.llama_version = llama_version
+        self.llm_version = llm_version
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.unimol_dictionary = unimol_dictionary
@@ -108,46 +108,9 @@ class Stage2DM(LightningDataModule):
                             drop_last=True,
                             persistent_workers=True,
                             collate_fn=Stage2Collater(self.tokenizer,
-                                                    self.llama_version,
+                                                    self.llm_version,
                                                     self.unimol_dictionary.pad(),
                                                     self.encoder_types)
                             )
         return loader
 
-
-if __name__ == '__main__':
-    from unicore.data import Dictionary
-    from transformers import AutoTokenizer
-    from data_provider.tokenizer import MolLLaMATokenizer
-
-    dictionary = Dictionary.load('./all_checkpoints/Mol-LLaMA3.1/unimol/unimol_dict.txt')
-    dictionary.add_symbol("[MASK]", is_special=True)
-
-    # tokenizer = AutoTokenizer.from_pretrained('all_checkpoints/Llama-3.1-8B-Instruct')
-    # llama_version = 'llama3'
-
-    tokenizer = AutoTokenizer.from_pretrained('all_checkpoints/Llama-2-7b-chat-hf')
-    llama_version = 'llama2'
-
-    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-    tokenizer.add_special_tokens({'additional_special_tokens': ["<mol>"]})
-    tokenizer.mol_token_ids = tokenizer("<mol>", add_special_tokens=False).input_ids[0]
-
-    tokenizer = MolLLaMATokenizer(tokenizer, llama_version=llama_version)
-
-    dm = Stage2DM(
-        num_workers=0,
-        batch_size=4,
-        root='data/Mol-LLaMA-Instruct/',
-        unimol_dictionary=dictionary,
-        encoder_types=['moleculestm', 'unimol'],
-        data_types=['comprehensive_conversations'],
-        # data_types = ['detailed_structural_descriptions'],
-        # data_types = ['structure2chemical_features_relationships'],
-        # data_types = ['structure2biological_features_relationships'],
-        tokenizer=tokenizer,
-    )
-
-    train_loader = dm.train_dataloader()
-    for batch in train_loader:
-        import pdb; pdb.set_trace()

@@ -1,0 +1,37 @@
+
+scontrol show job 17918
+JobId=17918 JobName=interactive
+   UserId=fryday(3141466) GroupId=fryday(3141466) MCS_label=N/A
+   Priority=318457 Nice=0 Account=def-hallett-ab QOS=normal
+   JobState=COMPLETING Reason=None Dependency=(null)
+   Requeue=0 Restarts=0 BatchFlag=0 Reboot=0 ExitCode=0:0
+   RunTime=04:20:36 TimeLimit=08:00:00 TimeMin=N/A
+   SubmitTime=2025-09-12T11:45:39 EligibleTime=2025-09-12T11:45:39
+   AccrueTime=2025-09-12T11:45:39
+   StartTime=2025-09-12T11:46:11 EndTime=2025-09-12T16:06:47 Deadline=N/A
+   SuspendTime=None SecsPreSuspend=0 LastSchedEval=2025-09-12T11:46:11 Scheduler=Main
+   Partition=compute AllocNode:Sid=trig-login01:2501084
+   ReqNodeList=(null) ExcNodeList=(null)
+   NodeList=trig0022
+   BatchHost=trig0022
+   NumNodes=1 NumCPUs=16 NumTasks=1 CPUs/Task=16 ReqB:S:C:T=0:0:*:*
+   ReqTRES=cpu=16,mem=192500M,node=1,billing=1,gres/gpu=1
+   AllocTRES=cpu=16,mem=192500M,node=1,billing=1,gres/gpu=1
+   Socks/Node=* NtasksPerN:B:S:C=0:0:*:* CoreSpec=*
+   MinCPUsNode=16 MinMemoryNode=192500M MinTmpDiskNode=0
+   Features=(null) DelayBoot=00:00:00
+   OverSubscribe=OK Contiguous=0 Licenses=(null) Network=(null)
+   Command=/bin/sh
+   WorkDir=/scratch/fryday/DQ-Former
+   Comment=/opt/slurm/bin/salloc --account=def-hallett-ab --gpus-per-node=1 --cpus-per-task=16 --time=8:00:00 
+   TresPerNode=gres/gpu:1
+   TresPerTask=cpu=16
+   
+
+sacct -j 17918
+JobID           JobName    Account    Elapsed  MaxVMSize     MaxRSS  SystemCPU    UserCPU ExitCode 
+------------ ---------- ---------- ---------- ---------- ---------- ---------- ---------- -------- 
+17918        interacti+ def-halle+   04:20:36                         00:00:00   00:00:00      0:0 
+17918.inter+ interacti+ def-halle+   04:20:36                         00:00:00   00:00:00      0:0 
+17918.extern     extern def-halle+   04:20:36                         00:00:00   00:00:00      0:0 
+

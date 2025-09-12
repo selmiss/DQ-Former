@@ -48,7 +48,7 @@ def edict_to_dict(config):
     else:
         return config
 
-def main(model_config, train_config, data_config, resume_from=None):
+def main(model_config, train_config, data_config, resume_from=None, test_mode=False):
     pl.seed_everything(0)
     
     # Check if using LLM baseline mode
@@ -156,6 +156,9 @@ def main(model_config, train_config, data_config, resume_from=None):
         unimol_dictionary=encoder.unimol_dictionary, 
         encoder_types=model_config.graph_encoder_config.encoder_types, 
         mol_type=data_config.mol_type if 'mol_type' in data_config else 'mol',
+        train_limit=1000 if test_mode else None,
+        val_limit=10 if test_mode else None,
+        test_limit=10 if test_mode else None,
     )
     
     
@@ -223,6 +226,7 @@ if __name__ == '__main__':
     parser.add_argument('--train_config_path', type=str, default='configs/moleculeqa/train_config.yaml')
     parser.add_argument('--data_config_path', type=str, default='configs/moleculeqa/data_config.yaml')
     parser.add_argument('--resume_from', type=str, default=None, help='Checkpoint path or "last" to resume from latest')
+    parser.add_argument('--test_mode', default=False, action='store_true', help='Use small dataset for testing')
 
     args = parser.parse_args()
 
@@ -236,5 +240,7 @@ if __name__ == '__main__':
     print(f'Total batch size: {data_config.batch_size * max(1, detected_num_devices) * train_config.accumulate_grad_batches}')
     print('-'*60)
 
-    main(model_config, train_config, data_config, resume_from=args.resume_from)
+    if args.test_mode:
+        print('TEST MODE: Using small dataset for quick testing')
+    main(model_config, train_config, data_config, resume_from=args.resume_from, test_mode=args.test_mode)
 
