@@ -25,3 +25,5 @@ enable_blending: True
 log_every_n_steps: 2
 zero_shot: False
 
+llm_baseline: Flase
+llm_model_path: unsloth/Qwen3-8B

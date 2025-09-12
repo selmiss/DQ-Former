@@ -98,6 +98,8 @@ class MoleculeQATrainer(pl.LightningModule):
             self.is_llm_baseline = True
         elif use_dq_encoder:
             self.is_llm_baseline = False
+            if hasattr(train_config, 'llm_model_path'):
+                model_config.llm_config.llm_model = train_config.llm_model_path
             self.model = DQMolLLaMA(
                 config=model_config,
                 vocab_size=vocab_size,
@@ -111,6 +113,8 @@ class MoleculeQATrainer(pl.LightningModule):
         else:
             self.is_llm_baseline = False
             model_config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
+            if hasattr(train_config, 'llm_model_path'):
+                model_config.llm_config.llm_model = train_config.llm_model_path
             self.model = MolLLaMA(
                 config=model_config,
                 vocab_size=vocab_size,

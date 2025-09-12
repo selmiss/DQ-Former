@@ -25,3 +25,6 @@ enable_blending: True
 log_every_n_steps: 2
 zero_shot: False
 
+llm_baseline: Flase
+llm_model_path: mistralai/Ministral-8B-Instruct-2410
+
