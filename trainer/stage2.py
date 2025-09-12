@@ -42,7 +42,11 @@ class Stage2Trainer(pl.LightningModule):
 
         # Choose model based on configuration
         if model_config.qformer_config.use_dq_encoder:
-            print("Using DQMolLLaMA, enable_blending:", train_config.enable_blending)
+            if hasattr(train_config, 'enable_blending'):
+                print("Using DQMolLLaMA, enable_blending:", train_config.enable_blending)
+            else:
+                print("Using DQMolLLaMA, enable_blending: False")
+                train_config.enable_blending = False
             self.mol_llama = DQMolLLaMA(
                 config=model_config,
                 vocab_size=vocab_size,

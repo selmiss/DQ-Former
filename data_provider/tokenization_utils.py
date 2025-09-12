@@ -178,25 +178,25 @@ def tokenize_messages_gemma(messages, tokenizer):
 
     return BatchEncoding(data=tokenized)
     
-def tokenized_messages(messages, tokenizer, llama_type):
+def tokenized_messages(messages, tokenizer, llm_type):
 
-    if llama_type == 'llama2':
+    if llm_type == 'llama2':
         return tokenize_messages_llama2(messages, tokenizer)
-    elif llama_type == 'llama3':
+    elif llm_type == 'llama3':
         return tokenize_messages_llama3(messages, tokenizer)
-    elif llama_type == 'qwen3':
+    elif llm_type == 'qwen3':
         return tokenize_messages_qwen3(messages, tokenizer)
-    elif llama_type in ('mistral', 'mistral8b'):
+    elif llm_type in ('mistral', 'mistral8b'):
         return tokenize_messages_mistral(messages, tokenizer)
-    elif llama_type == 'gemma':
+    elif llm_type == 'gemma':
         return tokenize_messages_gemma(messages, tokenizer)
     else:
         raise ValueError("Unsupported model type. Choose 'llama2', 'llama3', 'qwen3', 'mistral', 'mistral8b', or 'gemma'.")
 
-def batch_tokenize_messages_list(messages_list, tokenizer, llama_type, padding_side='left'):
+def batch_tokenize_messages_list(messages_list, tokenizer, llm_type, padding_side='left'):
     tokenized_list = []
     for messages in messages_list:
-        tokenized = tokenized_messages(messages, tokenizer, llama_type)
+        tokenized = tokenized_messages(messages, tokenizer, llm_type)
         tokenized_list.append(tokenized)
 
     # Pad the tokenized messages
@@ -229,10 +229,10 @@ def batch_tokenize_messages_list(messages_list, tokenizer, llama_type, padding_s
     return BatchEncoding(data=tokenized_list)
 
 
-def batch_tokenize_messages_list_simple(messages_list, tokenizer, llama_type, padding_side='left'):
+def batch_tokenize_messages_list_simple(messages_list, tokenizer, llm_type, padding_side='left'):
     tokenized_list = []
     for messages in messages_list:
-        tokenized = tokenized_messages(messages, tokenizer, llama_type)
+        tokenized = tokenized_messages(messages, tokenizer, llm_type)
         tokenized_list.append(tokenized)
 
     # Pad the tokenized messages

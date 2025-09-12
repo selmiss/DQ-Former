@@ -76,24 +76,6 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
     )
 
     model.load_from_stage1_ckpt(train_config.stage1_path)
-
-    # -------------------------- LoRA 训练 ----------------------------------
-    # q_lora_cfg = LoraConfig(
-    #     task_type=TaskType.FEATURE_EXTRACTION,   # 通用特征提取任务
-    #     inference_mode=False,                    # 训练态
-    #     r=8,
-    #     lora_alpha=32,
-    #     lora_dropout=0.1,
-    #     target_modules=["query", "key", "value", "dense"],  # BERT风格的层名
-    #     bias="none"
-    # )
-
-    # # 2. 套 LoRA（只包 Q-Former）
-    # model.mol_llama.encoder.Qformer = get_peft_model(model.mol_llama.encoder.Qformer, q_lora_cfg)
-
-    # # 3. 确认可训练参数
-    # model.mol_llama.encoder.Qformer.print_trainable_parameters()
-    # --------------------------------------------------------------
     
     args = {'train': edict_to_dict(train_config), 
             'model': edict_to_dict(model_config), 

@@ -4,7 +4,7 @@
 
 export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
 # export CUDA_VISIBLE_DEVICES=0,1,2,3
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=0,1
 
 python ${BASE_DIR}/stage2.py \
     --train_config_path ${BASE_DIR}/configs/stage2_dqformer/train_config.yaml \

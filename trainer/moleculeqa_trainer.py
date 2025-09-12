@@ -58,7 +58,7 @@ class MoleculeQATrainer(pl.LightningModule):
 
         if train_config.get('llm_baseline', False):
             # LLM baseline - only use language model without molecular encoders
-            print("Using LLM baseline (text-only)")
+            print("Using LLM baseline: ", train_config.llm_model_path)
             # Use AutoModelForCausalLM to support Gemma, Qwen, Mistral, LLaMA, etc.
             if train_config.enable_flash:
                 try:
@@ -133,7 +133,7 @@ class MoleculeQATrainer(pl.LightningModule):
         except Exception:
             pass
         # Try a few common end-of-turn markers across model families
-        for tok in ["<|eot_id|>", "<eos_token>", "<end_of_turn>", "<|endoftext|>"]:
+        for tok in ["<|eot_id|>", "<eos_token>", "<end_of_turn>", "<|endoftext|>", "<eos>", "</s>"]:
             try:
                 tid = self.tokenizer.convert_tokens_to_ids(tok)
                 if isinstance(tid, int) and tid >= 0:
@@ -309,7 +309,7 @@ class MoleculeQATrainer(pl.LightningModule):
                 'input_ids': text_batch.input_ids,
                 'attention_mask': text_batch.attention_mask,
                 'pad_token_id': self.tokenizer.pad_token_id,
-                'max_new_tokens': 512,
+                'max_new_tokens': 128,
                 'do_sample': True,
                 'temperature': 0.7,
             }
@@ -356,20 +356,21 @@ class MoleculeQATrainer(pl.LightningModule):
             ).to(self.device)
             new_text_batch.mol_token_flag = (new_text_batch.input_ids == self.tokenizer.mol_token_id).to(self.device)
 
-            new_responses = self.model.generate(
-                new_graph_batch, 
-                new_text_batch,
-                pad_token_id = self.tokenizer.pad_token_id,
-                eos_token_id = [self.tokenizer.eos_token_id],
-                brics_gids = other_infos['brics_gids'],
-                entropy_gids = other_infos['entropy_gids'],
-            )
+            if self.is_llm_baseline:
+                new_responses = self.model.generate(**gen_kwargs)
+            else:
+                new_responses = self.model.generate(
+                    new_graph_batch, 
+                    new_text_batch,
+                    pad_token_id = self.tokenizer.pad_token_id,
+                    eos_token_id = [self.tokenizer.eos_token_id],
+                    brics_gids = other_infos['brics_gids'],
+                    entropy_gids = other_infos['entropy_gids'],
+                )
             new_generated_texts = self.tokenizer.batch_decode(new_responses, skip_special_tokens=True)
 
             for _, i in enumerate(no_format_indices):
                 generated_texts[i] += "\n\nAnswer: " + new_generated_texts[_]
-
-
 
         for response, answer, task in zip(generated_texts, other_infos['answer'], other_infos['task']):
             self.test_step_outputs.append({
@@ -424,7 +425,8 @@ class MoleculeQATrainer(pl.LightningModule):
                 'response': response,
                 'answer': answer,
                 'prediction': prediction,
-                'correct': correct
+                'correct': correct,
+                'raw_response': response
             })
 
             if task not in corrects:
