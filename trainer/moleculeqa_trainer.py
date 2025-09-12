@@ -426,7 +426,6 @@ class MoleculeQATrainer(pl.LightningModule):
                 'answer': answer,
                 'prediction': prediction,
                 'correct': correct,
-                'raw_response': response
             })
 
             if task not in corrects:

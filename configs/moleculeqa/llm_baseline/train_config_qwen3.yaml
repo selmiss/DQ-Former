@@ -1,4 +1,4 @@
-filename: moleculeqa_llm_baseline_qwen3
+filename: moleculeqa_llm_baseline_qwen3_0shot
 ckpt_path: checkpoints/stage2_dqw2d/epoch=01.ckpt
 
 strategy_name: deepspeed
@@ -18,12 +18,12 @@ tune_gnn: False
 temperature: 0.1
 enable_flash: True
 use_dq_encoder: True
-freeze_llm: False
+freeze_llm: True
 brics_gids_enable: True
 entropy_gids_enable: True
 enable_blending: True
 log_every_n_steps: 2
-zero_shot: False
+zero_shot: True
 
 llm_baseline: True
 llm_model_path: unsloth/Qwen3-8B
