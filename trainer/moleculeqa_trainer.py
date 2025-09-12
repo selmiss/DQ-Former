@@ -309,7 +309,7 @@ class MoleculeQATrainer(pl.LightningModule):
                 'input_ids': text_batch.input_ids,
                 'attention_mask': text_batch.attention_mask,
                 'pad_token_id': self.tokenizer.pad_token_id,
-                'max_new_tokens': 128,
+                'max_new_tokens': 512,
                 'do_sample': True,
                 'temperature': 0.7,
             }
