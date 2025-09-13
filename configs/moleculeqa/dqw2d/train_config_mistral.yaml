@@ -1,5 +1,5 @@
-filename: moleculeqa_dqw2d_mistral8b
-ckpt_path: checkpoints/stage2_dqw2d_mistral8b/last.ckpt
+filename: moleculeqa_dqw2d_mistral8b_vwestern
+ckpt_path: checkpoints/stage2_dqw2d_mistral8b_vwestern/last.ckpt
 
 strategy_name: deepspeed
 accelerator: gpu

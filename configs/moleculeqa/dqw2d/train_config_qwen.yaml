@@ -1,5 +1,5 @@
-filename: moleculeqa_dqw2d_qwen3
-ckpt_path: checkpoints/stage2_dqw2d_qwen3/last.ckpt
+filename: moleculeqa_dqw2d_qwen3_v2
+ckpt_path: checkpoints/stage2_dqw2d_qwen3_v2/last.ckpt
 
 strategy_name: deepspeed
 accelerator: gpu
