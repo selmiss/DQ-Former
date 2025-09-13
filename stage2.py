@@ -81,9 +81,9 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
         add_ids = [mol_id, pad_id]
     )
 
-
     model.load_from_stage1_ckpt(train_config.stage1_path)
-    
+
+
     args = {'train': edict_to_dict(train_config), 
             'model': edict_to_dict(model_config), 
             'data': edict_to_dict(data_config)}

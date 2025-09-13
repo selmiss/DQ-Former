@@ -23,8 +23,8 @@ from models.blending_module.blending_module import BlendingModule
 from models.qformer.dq_modeling_bert import BertConfig, BertLMHeadModel
 
 
-
 from utils.dist_funs import pl_concat_all_gather
+from utils.hf_load import load_state_dict_from_cache
 
 def disabled_train(self, mode=True):
     """Overwrite model.train with this function to make sure train/eval mode
@@ -133,7 +133,10 @@ class DQMolLLaMAEncoder(nn.Module):
             filename=unimol_config.weights_filename,
         )
         ckpt = torch.load(unimol_ckpt_path, map_location='cpu', weights_only=True)
-        missing_keys, unexpected_keys = unimol_model.load_state_dict(ckpt['model'], strict=False)
+
+        # You may need to change some unicore code here.
+        missing_keys, unexpected_keys = unimol_model.load_state_dict(ckpt['model'], strict=False, assign=True)
+        # Here, if you are using later transformers package, please change the original onicore function load_state_dict to load_state_dict(state_dict, strict, assign=True).
         
         ln_graph = nn.LayerNorm(unimol_model.num_features)
         
@@ -146,7 +149,7 @@ class DQMolLLaMAEncoder(nn.Module):
             filename = moleculestm_config.filename,
         )
         moleculestm_ckpt = torch.load(moleculestm_ckpt_path, map_location='cpu', weights_only=True)
-        moleculestm_model.load_state_dict(moleculestm_ckpt, strict=True)
+        moleculestm_model.load_state_dict(moleculestm_ckpt, strict=True, assign=True)
 
         moleculestm_model.num_features = moleculestm_model.emb_dim
         ln_graph = nn.LayerNorm(moleculestm_model.num_features)
@@ -172,11 +175,12 @@ class DQMolLLaMAEncoder(nn.Module):
         max_local_q = getattr(qformer_config, "max_local_query", 64)
         self.max_local_q = max_local_q
         max_text_len = encoder_config.max_position_embeddings
-        encoder_config.max_position_embeddings = num_query_tokens + max_local_q + max_text_len 
-
-        Qformer = BertLMHeadModel.from_pretrained(
-            bert_name, config=encoder_config, ignore_mismatched_sizes=True
-        )
+        max_position_embeddings = num_query_tokens + max_local_q + max_text_len 
+        encoder_config.max_position_embeddings = max_position_embeddings
+        Qformer = BertLMHeadModel(encoder_config)
+        # Qformer = BertLMHeadModel.from_pretrained(
+        #     bert_name, config=encoder_config, ignore_mismatched_sizes=True
+        # )
 
         Qformer.resize_token_embeddings(len(tokenizer))
 
@@ -185,8 +189,6 @@ class DQMolLLaMAEncoder(nn.Module):
         new_embed = nn.Embedding(encoder_config.max_position_embeddings, old_embed.embedding_dim)
         new_embed.weight.data[: old_embed.num_embeddings] = old_embed.weight.data  # 复制已有部分
         Qformer.bert.embeddings.position_embeddings = new_embed
-        Qformer.config.max_position_embeddings = encoder_config.max_position_embeddings
-
 
         state_dict = Qformer.state_dict()
         for name, param in Qformer.named_parameters():
