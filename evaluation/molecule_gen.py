@@ -192,7 +192,7 @@ def main(model_config, train_config, data_config, resume_from=None, test_mode=Fa
         devices=devices_arg,
         precision=train_config.precision,
         max_epochs=getattr(train_config, "max_epochs", None),
-        max_steps=getattr(train_config, "max_steps", None),
+        max_steps=getattr(train_config, "max_steps", -1),
         accumulate_grad_batches=train_config.accumulate_grad_batches,
         check_val_every_n_epoch=getattr(train_config, "check_val_every_n_epoch", None),
         val_check_interval=getattr(train_config, "val_check_interval", None),

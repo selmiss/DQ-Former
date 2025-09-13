@@ -6,7 +6,7 @@ accelerator: gpu
 precision: bf16-mixed
 max_epochs: 10
 check_val_every_n_epoch: 1
-save_every_n_epochs: 15
+save_every_n_epochs: 10
 accumulate_grad_batches: 32 # 2 * 128
 
 weight_decay: 0.05
