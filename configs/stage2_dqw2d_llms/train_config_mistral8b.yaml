@@ -1,4 +1,4 @@
-filename: stage2_dqw2d_mistral8b
+filename: stage2_dqw2d_mistral8b_v2
 stage1_path: checkpoints/stage1_dqw2d/last.ckpt
 
 strategy_name: deepspeed
