@@ -336,7 +336,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         num_beams=1,
         max_length=None,
         min_length=1,
-        max_new_tokens=1024,
+        max_new_tokens=512,
         min_new_tokens=None,
         repetition_penalty=1.0,
         length_penalty=1.0,
