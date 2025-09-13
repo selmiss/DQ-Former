@@ -12,7 +12,7 @@ from peft import get_peft_model, LoraConfig, TaskType
 from utils.configuration_mol_llama import MolLLaMAConfig
 from models.DQ_former_encoder import DQMolLLaMAEncoder
 from models.mol_llama_encoder import MolLLaMAEncoder
-from transformers import AutoTokenizer, LlamaForCausalLM, PreTrainedModel, GenerationMixin, BitsAndBytesConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, GenerationMixin, BitsAndBytesConfig, LlamaForCausalLM
 from unicore.data import Dictionary
 
 from collections import defaultdict
@@ -121,12 +121,24 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         if not freeze_llm:
             logger.info(f"Loading LLM model: {config.llm_config.llm_model}")
             if enable_flash:
-                self.llm = LlamaForCausalLM.from_pretrained(config.llm_config.llm_model, torch_dtype=torch_dtype, 
-                                                                attn_implementation="flash_attention_2")
-
-                logger.info("Using flash attention")
+                try:
+                    self.llm = AutoModelForCausalLM.from_pretrained(
+                        config.llm_config.llm_model,
+                        torch_dtype=torch_dtype,
+                        attn_implementation="flash_attention_2",
+                    )
+                    logger.info("Using flash attention")
+                except TypeError:
+                    # Some architectures may not accept attn_implementation
+                    self.llm = AutoModelForCausalLM.from_pretrained(
+                        config.llm_config.llm_model,
+                        torch_dtype=torch_dtype,
+                    )
             else:
-                self.llm = LlamaForCausalLM.from_pretrained(config.llm_config.llm_model, torch_dtype=torch_dtype)
+                self.llm = AutoModelForCausalLM.from_pretrained(
+                    config.llm_config.llm_model,
+                    torch_dtype=torch_dtype,
+                )
             self.llm.resize_token_embeddings(vocab_size)
             
             peft_config = LoraConfig(task_type=TaskType.CAUSAL_LM,
@@ -506,7 +518,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         state_dict = {k[8:]: v for k, v in state_dict_raw.items() if k.startswith("encoder.")}
         # print(f"state_dict: {state_dict.keys()}")
         # print(f"self.encoder.state_dict().keys(): {self.encoder.state_dict().keys()}")
-        missing_keys, unexpected_keys = self.encoder.load_state_dict(state_dict, strict=False)
+        missing_keys, unexpected_keys = self.encoder.load_state_dict(state_dict, strict=False, assign=True)
         assert len(unexpected_keys) == 0, f"unexpected keys: {unexpected_keys}"
         for k in missing_keys:
             assert k.startswith("graph_encoder."), f"Missing unexpected key: {k}"

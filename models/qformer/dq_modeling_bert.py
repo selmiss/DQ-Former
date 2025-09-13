@@ -1209,6 +1209,50 @@ class BertLMHeadModel(BertPreTrainedModel):
 
     def get_output_embeddings(self):
         return self.cls.predictions.decoder
+    
+    def resize_position_embeddings(self, new_num_position_embeddings: int) -> nn.Embedding:
+        """
+        扩展/收缩绝对位置嵌入表：
+        - 复制可对齐部分权重
+        - 新增位置用正态分布初始化（std=initializer_range）
+        - 更新 position_ids 缓冲与 config.max_position_embeddings
+        返回新的 nn.Embedding
+        """
+        embeddings = self.bert.embeddings
+        old_embed: nn.Embedding = embeddings.position_embeddings
+        old_num, dim = old_embed.weight.shape
+
+        if new_num_position_embeddings == old_num:
+            return old_embed
+
+        device = old_embed.weight.device
+        dtype  = old_embed.weight.dtype
+        std = getattr(self.config, "initializer_range", 0.02)
+
+        new_embed = nn.Embedding(new_num_position_embeddings, dim)
+        new_embed.to(device=device, dtype=dtype)
+        # 先初始化，再拷贝重叠部分
+        nn.init.normal_(new_embed.weight, mean=0.0, std=std)
+        n = min(old_num, new_num_position_embeddings)
+        with torch.no_grad():
+            new_embed.weight[:n].copy_(old_embed.weight[:n])
+
+        # 替换模块中的 position_embeddings
+        embeddings.position_embeddings = new_embed
+
+        # 更新 position_ids 缓冲 (BERT Embeddings 里常用到)
+        embeddings.register_buffer(
+            "position_ids",
+            torch.arange(new_num_position_embeddings, device=device, dtype=torch.long).unsqueeze(0),
+            persistent=False,
+        )
+
+        # 同步 config
+        self.config.max_position_embeddings = new_num_position_embeddings
+        if hasattr(self.bert, "config"):
+            self.bert.config.max_position_embeddings = new_num_position_embeddings
+
+        return new_embed
 
     def set_output_embeddings(self, new_embeddings):
         self.cls.predictions.decoder = new_embeddings

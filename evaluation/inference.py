@@ -18,27 +18,41 @@ from dataset import ZeroshotDataset, ZeroshotCollater
 
 def main(args):
     # Load model and tokenizer
-    llama_version = 'llama3' if 'Llama-3' in args.pretrained_model_name_or_path else 'llama2'
+    llm_version = 'llama3' if 'Llama-3' in args.pretrained_model_name_or_path else 'llama2'
     if args.tokenizer_path is None:
         tokenizer_path = args.pretrained_model_name_or_path
     else:
         tokenizer_path = args.tokenizer_path
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
+    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    tokenizer.add_special_tokens({'additional_special_tokens': ["<mol>"]})
     tokenizer.mol_token_id = tokenizer("<mol>", add_special_tokens=False).input_ids[0]
     tokenizer.padding_side = 'left'
-    if llama_version == 'llama3':
+
+    if llm_version == 'llama3':
         terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids('<|eot_id|>')]
-    elif llama_version == 'llama2':
+    elif llm_version == 'llama2':
         terminators = tokenizer.eos_token_id
+    elif llm_version == 'mistral':
+        terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids('<|endoftext|>')]
+    elif llm_version == 'qwen3':
+        terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids('<|extra_0|>')]
+    elif llm_version == 'gemma':
+        terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids('<|eot_id|>')]
+    else:
+        raise ValueError(f"Unsupported model type. Choose 'llama2', 'llama3', 'mistral', 'qwen3', or 'gemma'.")
     
     # Initialize model directly instead of using from_pretrained
     config = MolLLaMAConfig(
         llm_config={'llm_model': args.pretrained_model_name_or_path},
         qformer_config={'use_dq_encoder': args.use_dq_encoder, 'use_flash_attention': True},  # Adjust as needed
-        graph_encoder_config={'encoder_types': ['unimol']},  # Adjust as needed
+        graph_encoder_config={'encoder_types': ['unimol', 'moleculestm'] if args.enable_blending else ['unimol']},  # Adjust as needed
+        blending_module_config={'enable_blending': args.enable_blending},
         torch_dtype="float16"
     )
     if args.use_dq_encoder:
+        if args.llm_baseline:
+            config.llm_config.llm_model = args.pretrained_model_name_or_path
         model = DQMolLLaMA(
             config=config,
             vocab_size=len(tokenizer),
@@ -46,6 +60,7 @@ def main(args):
             enable_flash=True,
             brics_gids_enable=args.brics_gids_enable,
             entropy_gids_enable=args.entropy_gids_enable,
+            enable_blending=args.enable_blending,
         )
         model.load_from_ckpt(args.qformer_path)
         encoder = model.encoder
@@ -77,7 +92,7 @@ def main(args):
     else:
         warnings.warn(f"Positive and negative labels not found in meta.json, using 'positive' and 'negative' as default.")
 
-    collater = ZeroshotCollater(tokenizer, encoder.unimol_dictionary, llama_version, args.only_llm)
+    collater = ZeroshotCollater(tokenizer, encoder.unimol_dictionary, llm_version, args.only_llm)
     dataloader = DataLoader(dataset, batch_size=32, collate_fn=collater, shuffle=False)
 
     # ----------- Generation ----------- #
@@ -261,6 +276,8 @@ if __name__ == '__main__':
     parser.add_argument('--brics_gids_enable', default=False, action='store_true')
     parser.add_argument('--entropy_gids_enable', default=False, action='store_true')
     parser.add_argument('--debug_mode', default=False, action='store_true')
+    parser.add_argument('--enable_blending', default=False, action='store_true')
+    parser.add_argument('--llm_baseline', default=False, action='store_true')
     args = parser.parse_args()
     main(args)
 

@@ -47,7 +47,7 @@ class Stage2Trainer(pl.LightningModule):
             else:
                 print("Using DQMolLLaMA, enable_blending: False")
                 train_config.enable_blending = False
-            self.mol_llama = DQMolLLaMA(
+            self.model = DQMolLLaMA(
                 config=model_config,
                 vocab_size=vocab_size,
                 torch_dtype = torch_dtype,
@@ -60,7 +60,7 @@ class Stage2Trainer(pl.LightningModule):
             )
         else:
             print("Using MolLLaMA")
-            self.mol_llama = MolLLaMA(
+            self.model = MolLLaMA(
                 config=model_config,
                 vocab_size=vocab_size,
                 torch_dtype = torch_dtype,
@@ -72,7 +72,7 @@ class Stage2Trainer(pl.LightningModule):
 
 
     def load_from_stage1_ckpt(self, ckpt_path):
-        self.mol_llama.load_from_stage1_ckpt(ckpt_path)        
+        self.model.load_from_stage1_ckpt(ckpt_path)        
 
     def configure_optimizers(self):
         self.trainer.fit_loop.setup_data()
@@ -105,7 +105,7 @@ class Stage2Trainer(pl.LightningModule):
 
         batch_size = text_batch.input_ids.size(0)
         ###============== Overall Loss ===================###
-        output = self.mol_llama(graph_batch, text_batch, other_infos)
+        output = self.model(graph_batch, text_batch, other_infos)
         loss = {'loss': output['loss']}
 
         self.log("molecule loss", float(loss['loss']), batch_size=batch_size, sync_dist=True)

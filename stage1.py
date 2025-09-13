@@ -65,7 +65,8 @@ def main(model_config, train_config, data_config, test_mode=False):
     pl.seed_everything(0)
 
     model = Stage1Trainer(model_config, train_config)
-    
+
+
     args = {'train': edict_to_dict(train_config), 
             'model': edict_to_dict(model_config), 
             'data': edict_to_dict(data_config)}
@@ -95,13 +96,6 @@ def main(model_config, train_config, data_config, test_mode=False):
                                          save_on_train_epoch_end=True)
     ]
     
-    # if len(train_config.devices) > 1:
-    #     if train_config.strategy_name == 'deepspeed':
-    #         strategy = MyDeepSpeedStrategy(stage=2)
-    #     else:
-    #         strategy = strategies.DDPStrategy(start_method='spawn', find_unused_parameters=False)
-    # else:
-    #     strategy = 'auto'
 
     detected_num_devices = torch.cuda.device_count() if torch.cuda.is_available() else 0
     if detected_num_devices > 1:
@@ -119,14 +113,15 @@ def main(model_config, train_config, data_config, test_mode=False):
         project="stage1_v2",              # 项目名
         name=train_config.filename,    # 实验名，可用 checkpoint 名作为 run name
         log_model=False,               # 是否自动上传模型
+        mode="offline",
     )
     
     logger = [logger, wandb_logger]
-
+    accelerator_arg = train_config.accelerator if detected_num_devices > 0 else 'cpu'
     devices_arg = detected_num_devices if detected_num_devices > 0 else 1
     # profiler = AdvancedProfiler(dirpath="prof_log", filename="perf.txt")
     trainer = Trainer(
-        accelerator=train_config.accelerator,
+        accelerator=accelerator_arg,
         devices=devices_arg,
         precision=train_config.precision,
         max_epochs=train_config.max_epochs,
