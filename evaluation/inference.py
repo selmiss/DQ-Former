@@ -18,7 +18,19 @@ from dataset import ZeroshotDataset, ZeroshotCollater
 
 def main(args):
     # Load model and tokenizer
-    llm_version = 'llama3' if 'Llama-3' in args.pretrained_model_name_or_path else 'llama2'
+    if 'Llama-2' in args.pretrained_model_name_or_path:
+        llm_version = 'llama2'
+    elif 'Llama-3' in args.pretrained_model_name_or_path:
+        llm_version = 'llama3'
+    elif 'Qwen3' in args.pretrained_model_name_or_path:
+        llm_version = 'qwen3'
+    elif 'Ministral' in args.pretrained_model_name_or_path:
+        llm_version = 'mistral'
+    elif 'gemma' in args.pretrained_model_name_or_path:
+        llm_version = 'gemma'
+    else:
+        raise ValueError(f"Unsupported model type. Choose 'llama2', 'llama3', 'qwen3', 'mistral', or 'gemma'.")
+
     if args.tokenizer_path is None:
         tokenizer_path = args.pretrained_model_name_or_path
     else:
@@ -29,19 +41,7 @@ def main(args):
     tokenizer.mol_token_id = tokenizer("<mol>", add_special_tokens=False).input_ids[0]
     tokenizer.padding_side = 'left'
 
-    if llm_version == 'llama3':
-        terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids('<|eot_id|>')]
-    elif llm_version == 'llama2':
-        terminators = tokenizer.eos_token_id
-    elif llm_version == 'mistral':
-        terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids('<|endoftext|>')]
-    elif llm_version == 'qwen3':
-        terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids('<|extra_0|>')]
-    elif llm_version == 'gemma':
-        terminators = [tokenizer.eos_token_id, tokenizer.convert_tokens_to_ids('<|eot_id|>')]
-    else:
-        raise ValueError(f"Unsupported model type. Choose 'llama2', 'llama3', 'mistral', 'qwen3', or 'gemma'.")
-    
+    terminators = tokenizer.eos_token_id
     # Initialize model directly instead of using from_pretrained
     config = MolLLaMAConfig(
         llm_config={'llm_model': args.pretrained_model_name_or_path},
@@ -112,11 +112,12 @@ def main(args):
             outputs = model.generate(
                 inputs = text_batch['input_ids'],
                 attention_mask = text_batch['attention_mask'],
-                max_new_tokens = 1024,
+                max_new_tokens = 512,
                 pad_token_id = tokenizer.pad_token_id,
                 eos_token_id = terminators,
             )
         else:
+
             outputs = model.generate(
                 graph_batch = graph_batch,
                 text_batch = text_batch,
@@ -155,7 +156,16 @@ def main(args):
             ).to(args.device)
             new_text_batch.mol_token_flag = (new_text_batch.input_ids == tokenizer.mol_token_id).to(args.device)
 
-            new_generated_texts = model.generate(
+            if args.only_llm:
+                new_generated_texts = model.generate(
+                    inputs = new_text_batch['input_ids'],
+                    attention_mask = new_text_batch['attention_mask'],
+                    max_new_tokens = 512,
+                    pad_token_id = tokenizer.pad_token_id,
+                    eos_token_id = terminators,
+                )
+            else:
+                new_generated_texts = model.generate(
                 graph_batch = new_graph_batch,
                 text_batch = new_text_batch,
                 pad_token_id = tokenizer.pad_token_id,

@@ -157,9 +157,9 @@ class ZeroshotDataset(Dataset):
         return data_graphs, messages, data['answer'], data['smiles'], data['brics_gids'] if 'brics_gids' in data else None, data['entropy_gids'] if 'entropy_gids' in data else None
 
 class ZeroshotCollater():
-    def __init__(self, tokenizer, unimol_dictionary, llama_version, only_llm=False):
+    def __init__(self, tokenizer, unimol_dictionary, llm_version, only_llm=False):
         self.tokenizer = tokenizer
-        self.llama_version = llama_version
+        self.llm_version = llm_version
         self.d3_collater = Mol3DCollater(unimol_dictionary.pad())
         self.only_llm = only_llm
     def __call__(self, batch):
@@ -177,10 +177,10 @@ class ZeroshotCollater():
 
         if self.only_llm:
             tokenized = batch_tokenize_messages_list_simple(messages_list, self.tokenizer, 
-                                                            self.llama_version, padding_side='left')
+                                                            self.llm_version, padding_side='left')
         else:
             tokenized = batch_tokenize_messages_list(messages_list, self.tokenizer, 
-                                                    self.llama_version, padding_side='left')
+                                                    self.llm_version, padding_side='left')
         text_batch = tokenized
 
         return graph_batch, text_batch, answers, smiles, brics_gids, entropy_gids

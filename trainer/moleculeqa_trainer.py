@@ -463,7 +463,43 @@ class MoleculeGENQATrainer(pl.LightningModule):
         self.use_dq_encoder = use_dq_encoder
         print(f"use_dq_encoder: {use_dq_encoder}")
 
-        if use_dq_encoder:
+        if train_config.get('llm_baseline', False):
+            print("Using LLM baseline: ", train_config.llm_model_path)
+            if train_config.enable_flash:
+                try:
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        train_config.llm_model_path,
+                        torch_dtype=torch_dtype,
+                        attn_implementation="flash_attention_2",
+                    )
+                    print("Using flash attention for LLM baseline")
+                except TypeError:
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        train_config.llm_model_path,
+                        torch_dtype=torch_dtype,
+                    )
+            else:
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    train_config.llm_model_path,
+                    torch_dtype=torch_dtype,
+                )
+            self.model.resize_token_embeddings(vocab_size)
+            if not train_config.freeze_llm:
+                peft_config = LoraConfig(
+                    task_type=TaskType.CAUSAL_LM,
+                    inference_mode=False,
+                    r=model_config.llm_config.lora_config.r,
+                    lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                    lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+                )
+                self.model = get_peft_model(self.model, peft_config)
+                print("Applied LoRA to LLM baseline")
+            self.is_llm_baseline = True
+        elif use_dq_encoder:
+            self.is_llm_baseline = False
+            if hasattr(train_config, 'llm_model_path'):
+                model_config.llm_config.llm_model = train_config.llm_model_path
             self.model = DQMolLLaMA(
                 config=model_config,
                 vocab_size=vocab_size,
@@ -475,6 +511,12 @@ class MoleculeGENQATrainer(pl.LightningModule):
                 enable_blending = train_config.enable_blending,
             )
         else:
+            self.is_llm_baseline = False
+            if hasattr(train_config, 'llm_model_path'):
+                model_config.llm_config.llm_model = train_config.llm_model_path
+            # Align encoder types with MoleculeQATrainer defaults
+            if hasattr(model_config, 'graph_encoder_config'):
+                model_config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
             self.model = MolLLaMA(
                 config=model_config,
                 vocab_size=vocab_size,
@@ -519,8 +561,16 @@ class MoleculeGENQATrainer(pl.LightningModule):
 
         batch_size = text_batch.input_ids.size(0)
         ###============== Overall Loss ===================###
-        output = self.model(graph_batch, text_batch, other_infos)
-        loss = output['loss']
+        if getattr(self, 'is_llm_baseline', False):
+            output = self.model(
+                input_ids=text_batch.input_ids,
+                attention_mask=text_batch.attention_mask,
+                labels=text_batch.input_ids
+            )
+            loss = output.loss
+        else:
+            output = self.model(graph_batch, text_batch, other_infos)
+            loss = output['loss']
 
         self.log("train_loss", loss, batch_size=batch_size, sync_dist=False, logger=True, prog_bar=True, on_step=True, on_epoch=False)
         self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], batch_size=batch_size, sync_dist=False, on_step=True, on_epoch=False)
@@ -530,14 +580,28 @@ class MoleculeGENQATrainer(pl.LightningModule):
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
         graph_batch, text_batch, other_infos = batch
-        responses = self.model.generate(
-            graph_batch,
-            text_batch,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=[self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
-            brics_gids=other_infos['brics_gids'],
-            entropy_gids=other_infos['entropy_gids'],
-        )
+        if getattr(self, 'is_llm_baseline', False):
+            eos_ids = self._get_eos_token_ids()
+            gen_kwargs = {
+                'input_ids': text_batch.input_ids,
+                'attention_mask': text_batch.attention_mask,
+                'pad_token_id': self.tokenizer.pad_token_id,
+                'max_new_tokens': 512,
+                'do_sample': True,
+                'temperature': 0.7,
+            }
+            if eos_ids is not None:
+                gen_kwargs['eos_token_id'] = eos_ids
+            responses = self.model.generate(**gen_kwargs)
+        else:
+            responses = self.model.generate(
+                graph_batch,
+                text_batch,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=[self.tokenizer.eos_token_id],
+                brics_gids=other_infos['brics_gids'],
+                entropy_gids=other_infos['entropy_gids'],
+            )
         generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
 
         for pred_text, gt_text in zip(generated_texts, other_infos['answer']):
@@ -569,14 +633,28 @@ class MoleculeGENQATrainer(pl.LightningModule):
     @torch.no_grad()
     def test_step(self, batch, batch_idx):
         graph_batch, text_batch, other_infos = batch
-        responses = self.model.generate(
-            graph_batch,
-            text_batch,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=[self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
-            brics_gids=other_infos['brics_gids'],
-            entropy_gids=other_infos['entropy_gids'],
-        )
+        if getattr(self, 'is_llm_baseline', False):
+            eos_ids = self._get_eos_token_ids()
+            gen_kwargs = {
+                'input_ids': text_batch.input_ids,
+                'attention_mask': text_batch.attention_mask,
+                'pad_token_id': self.tokenizer.pad_token_id,
+                'max_new_tokens': 512,
+                'do_sample': True,
+                'temperature': 0.7,
+            }
+            if eos_ids is not None:
+                gen_kwargs['eos_token_id'] = eos_ids
+            responses = self.model.generate(**gen_kwargs)
+        else:
+            responses = self.model.generate(
+                graph_batch,
+                text_batch,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=[self.tokenizer.eos_token_id],
+                brics_gids=other_infos['brics_gids'],
+                entropy_gids=other_infos['entropy_gids'],
+            )
         generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
 
         for pred_text, gt_text in zip(generated_texts, other_infos['answer']):
@@ -660,6 +738,23 @@ class MoleculeGENQATrainer(pl.LightningModule):
 
         return metrics, per_sample
 
+    def _get_eos_token_ids(self):
+        ids = []
+        try:
+            if getattr(self.tokenizer, 'eos_token_id', None) is not None:
+                ids.append(self.tokenizer.eos_token_id)
+        except Exception:
+            pass
+        for tok in ["<|eot_id|>", "<eos_token>", "<end_of_turn>", "<|endoftext|>", "<eos>", "</s>"]:
+            try:
+                tid = self.tokenizer.convert_tokens_to_ids(tok)
+                if isinstance(tid, int) and tid >= 0:
+                    ids.append(tid)
+            except Exception:
+                continue
+        ids = list(dict.fromkeys(ids))
+        return ids if len(ids) > 0 else None
+
 class MoleculePropertyQATrainer(pl.LightningModule):
     def __init__(self, vocab_size, model_config, train_config, use_dq_encoder=False, torch_dtype=None):
         super().__init__()
@@ -675,7 +770,43 @@ class MoleculePropertyQATrainer(pl.LightningModule):
         self.use_dq_encoder = use_dq_encoder
         print(f"use_dq_encoder: {use_dq_encoder}")
 
-        if use_dq_encoder:
+        if train_config.get('llm_baseline', False):
+            print("Using LLM baseline: ", train_config.llm_model_path)
+            if train_config.enable_flash:
+                try:
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        train_config.llm_model_path,
+                        torch_dtype=torch_dtype,
+                        attn_implementation="flash_attention_2",
+                    )
+                    print("Using flash attention for LLM baseline")
+                except TypeError:
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        train_config.llm_model_path,
+                        torch_dtype=torch_dtype,
+                    )
+            else:
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    train_config.llm_model_path,
+                    torch_dtype=torch_dtype,
+                )
+            self.model.resize_token_embeddings(vocab_size)
+            if not train_config.freeze_llm:
+                peft_config = LoraConfig(
+                    task_type=TaskType.CAUSAL_LM,
+                    inference_mode=False,
+                    r=model_config.llm_config.lora_config.r,
+                    lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                    lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+                )
+                self.model = get_peft_model(self.model, peft_config)
+                print("Applied LoRA to LLM baseline")
+            self.is_llm_baseline = True
+        elif use_dq_encoder:
+            self.is_llm_baseline = False
+            if hasattr(train_config, 'llm_model_path'):
+                model_config.llm_config.llm_model = train_config.llm_model_path
             self.model = DQMolLLaMA(
                 config=model_config,
                 vocab_size=vocab_size,
@@ -687,6 +818,11 @@ class MoleculePropertyQATrainer(pl.LightningModule):
                 enable_blending = train_config.enable_blending,
             )
         else:
+            self.is_llm_baseline = False
+            if hasattr(train_config, 'llm_model_path'):
+                model_config.llm_config.llm_model = train_config.llm_model_path
+            if hasattr(model_config, 'graph_encoder_config'):
+                model_config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
             self.model = MolLLaMA(
                 config=model_config,
                 vocab_size=vocab_size,
@@ -731,8 +867,16 @@ class MoleculePropertyQATrainer(pl.LightningModule):
 
         batch_size = text_batch.input_ids.size(0)
         ###============== Overall Loss ===================###
-        output = self.model(graph_batch, text_batch, other_infos)
-        loss = output['loss']
+        if getattr(self, 'is_llm_baseline', False):
+            output = self.model(
+                input_ids=text_batch.input_ids,
+                attention_mask=text_batch.attention_mask,
+                labels=text_batch.input_ids
+            )
+            loss = output.loss
+        else:
+            output = self.model(graph_batch, text_batch, other_infos)
+            loss = output['loss']
 
         self.log("train_loss", loss, batch_size=batch_size, sync_dist=False, logger=True, prog_bar=True, on_step=True, on_epoch=False)
         self.log("lr", self.trainer.optimizers[0].param_groups[0]['lr'], batch_size=batch_size, sync_dist=False, on_step=True, on_epoch=False)
@@ -742,14 +886,28 @@ class MoleculePropertyQATrainer(pl.LightningModule):
     @torch.no_grad()
     def validation_step(self, batch, batch_idx):
         graph_batch, text_batch, other_infos = batch
-        responses = self.model.generate(
-            graph_batch,
-            text_batch,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=[self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
-            brics_gids=other_infos['brics_gids'],
-            entropy_gids=other_infos['entropy_gids'],
-        )
+        if getattr(self, 'is_llm_baseline', False):
+            eos_ids = self._get_eos_token_ids()
+            gen_kwargs = {
+                'input_ids': text_batch.input_ids,
+                'attention_mask': text_batch.attention_mask,
+                'pad_token_id': self.tokenizer.pad_token_id,
+                'max_new_tokens': 512,
+                'do_sample': True,
+                'temperature': 0.7,
+            }
+            if eos_ids is not None:
+                gen_kwargs['eos_token_id'] = eos_ids
+            responses = self.model.generate(**gen_kwargs)
+        else:
+            responses = self.model.generate(
+                graph_batch,
+                text_batch,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=[self.tokenizer.eos_token_id],
+                brics_gids=other_infos['brics_gids'],
+                entropy_gids=other_infos['entropy_gids'],
+            )
         generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
 
         for pred_text, gt_text in zip(generated_texts, other_infos['answer']):
@@ -784,14 +942,28 @@ class MoleculePropertyQATrainer(pl.LightningModule):
     @torch.no_grad()
     def test_step(self, batch, batch_idx):
         graph_batch, text_batch, other_infos = batch
-        responses = self.model.generate(
-            graph_batch,
-            text_batch,
-            pad_token_id=self.tokenizer.pad_token_id,
-            eos_token_id=[self.tokenizer.eos_token_id, self.tokenizer.convert_tokens_to_ids('<|eot_id|>')],
-            brics_gids=other_infos['brics_gids'],
-            entropy_gids=other_infos['entropy_gids'],
-        )
+        if getattr(self, 'is_llm_baseline', False):
+            eos_ids = self._get_eos_token_ids()
+            gen_kwargs = {
+                'input_ids': text_batch.input_ids,
+                'attention_mask': text_batch.attention_mask,
+                'pad_token_id': self.tokenizer.pad_token_id,
+                'max_new_tokens': 512,
+                'do_sample': True,
+                'temperature': 0.7,
+            }
+            if eos_ids is not None:
+                gen_kwargs['eos_token_id'] = eos_ids
+            responses = self.model.generate(**gen_kwargs)
+        else:
+            responses = self.model.generate(
+                graph_batch,
+                text_batch,
+                pad_token_id=self.tokenizer.pad_token_id,
+                eos_token_id=[self.tokenizer.eos_token_id],
+                brics_gids=other_infos['brics_gids'],
+                entropy_gids=other_infos['entropy_gids'],
+            )
         generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
 
         for pred_text, gt_text in zip(generated_texts, other_infos['answer']):
@@ -867,3 +1039,20 @@ class MoleculePropertyQATrainer(pl.LightningModule):
         }
 
         return metrics, per_sample
+
+    def _get_eos_token_ids(self):
+        ids = []
+        try:
+            if getattr(self.tokenizer, 'eos_token_id', None) is not None:
+                ids.append(self.tokenizer.eos_token_id)
+        except Exception:
+            pass
+        for tok in ["<|eot_id|>", "<eos_token>", "<end_of_turn>", "<|endoftext|>", "<eos>", "</s>"]:
+            try:
+                tid = self.tokenizer.convert_tokens_to_ids(tok)
+                if isinstance(tid, int) and tid >= 0:
+                    ids.append(tid)
+            except Exception:
+                continue
+        ids = list(dict.fromkeys(ids))
+        return ids if len(ids) > 0 else None

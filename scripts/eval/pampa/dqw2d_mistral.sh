@@ -10,10 +10,10 @@ for prompt_type in default rationale task_info; do
     python ${BASE_DIR}/evaluation/inference.py \
         --pretrained_model_name_or_path mistralai/Ministral-8B-Instruct-2410 \
         --data_dir ${DATA_DIR} \
-        --task_name bbbp \
-        --qformer_path ${BASE_DIR}/checkpoints/stage2_dqw2d_mistral8b_vwestern/last.ckpt \
+        --task_name pampa \
+        --qformer_path ${BASE_DIR}/checkpoints/stage2_dqw2d_mistral8b_v2_dusky/last.ckpt \
         --prompt_type ${prompt_type} \
-        --output_name dqw2d_mistral_v2 \
+        --output_name dqw2d_mistral_dusky \
         --use_dq_encoder \
         --enable_blending \
         --llm_baseline

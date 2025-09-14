@@ -336,7 +336,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         num_beams=1,
         max_length=None,
         min_length=1,
-        max_new_tokens=1024,
+        max_new_tokens=512,
         min_new_tokens=None,
         repetition_penalty=1.0,
         length_penalty=1.0,
@@ -484,9 +484,20 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         print(f"Loading from checkpoint: {ckpt_path}")
 
         ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
-        state_dict = {k[10:]:v for k,v in ckpt['state_dict'].items() if k.startswith("mol_llama.")}
+        if 'mol_llama.' in list(ckpt['state_dict'].keys())[0]:
+            prefix_len = 10
+            prefix = "mol_llama."
+        elif 'model.' in list(ckpt['state_dict'].keys())[0]:
+            prefix_len = 6
+            prefix = "model."
+        else:
+            prefix_len = 0
+            prefix = ""
+        # import pdb; pdb.set_trace()
+        state_dict = {k[prefix_len:]:v for k,v in ckpt['state_dict'].items() if k.startswith(prefix)}
 
         missing_keys, unexpected_keys = self.load_state_dict(state_dict, strict=False)
+
         assert len(unexpected_keys) == 0, f"unexpected keys: {unexpected_keys}"
         for k in missing_keys:
             if 'position_ids' in k: continue
