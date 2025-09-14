@@ -1,4 +1,4 @@
-filename: molgen_dqw2d
+filename: molgen_dqw2d_retrain_v2
 ckpt_path: checkpoints/stage2_dqw2d/epoch=01.ckpt
 
 strategy_name: deepspeed
