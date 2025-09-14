@@ -183,8 +183,8 @@ def generate_conformer_with_rdkit(smiles: str) -> Tuple[Optional[List[str]], Opt
         )
         try:
             # Use all available CPU cores for optimization
-            num_threads = int(os.environ.get('NUM_WORKERS', '10'))  # 0 means use all cores
-            AllChem.MMFFOptimizeMoleculeConfs(mol, maxIters=50, numThreads=num_threads)
+            num_threads = int(os.environ.get('NUM_WORKERS', '12'))  # 0 means use all cores
+            AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=num_threads)
             # AllChem.UFFOptimizeMoleculeConfs(mol, maxIters=10, numThreads=10)
 
         except Exception:
