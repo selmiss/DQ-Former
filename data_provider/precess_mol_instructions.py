@@ -54,7 +54,7 @@ def build_records(items: List[Dict]) -> Dict[str, List[Dict]]:
     if len(train_items) > 3000:
         import random
         random.seed(42)  # For reproducibility
-        sampled_train = random.sample(train_items, len(train_items)//4)
+        sampled_train = random.sample(train_items, len(train_items))
     else:
         sampled_train = train_items
     
