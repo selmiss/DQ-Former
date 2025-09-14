@@ -1,5 +1,5 @@
 num_workers: 16
-batch_size: 4
+batch_size: 2
 root: data/moleculeqa
 task: qa
 mol_type: SMILES,mol
