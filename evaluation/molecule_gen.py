@@ -265,7 +265,7 @@ if __name__ == "__main__":
 
     model_config = MolLLaMAConfig(
         qformer_config={
-            "use_flash_attention": train_config.use_flash_attention,
+            "use_flash_attention": train_config.enable_flash,
             "use_dq_encoder": train_config.use_dq_encoder,
             "num_query_tokens": getattr(train_config, "num_query_tokens", 8),
             "embed_dim": getattr(train_config, "embed_dim", 256),
