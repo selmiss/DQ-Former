@@ -6,5 +6,5 @@ export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
 export CUDA_VISIBLE_DEVICES=4,5,6,7
 
 python ${BASE_DIR}/stage2.py \
-    --train_config_path ${BASE_DIR}/configs/stage2_dqw2d_llms/train_config_qwen3.yaml \
-    --data_config_path ${BASE_DIR}/configs/stage2_dqw2d_llms/data_config.yaml
+    --train_config_path ${BASE_DIR}/configs/stage2_dqw2d/train_config_large.yaml \
+    --data_config_path ${BASE_DIR}/configs/stage2_dqw2d/data_config.yaml

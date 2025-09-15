@@ -1,5 +1,5 @@
-filename: stage2_dqw2d
-stage1_path: checkpoints/stage1_dqw2d/last.ckpt
+filename: stage2_dqw2d_large
+stage1_path: checkpoints/stage1_dqw2d_v2/last.ckpt
 
 strategy_name: deepspeed
 accelerator: gpu
@@ -25,3 +25,9 @@ freeze_llm: True
 brics_gids_enable: True
 entropy_gids_enable: True
 enable_blending: True
+
+num_query_tokens: 16
+num_layers: 8
+num_heads: 8
+embed_dim: 512
+cross_attention_freq: 1
