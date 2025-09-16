@@ -15,10 +15,7 @@ from data_provider.generate_from_csv import generate_conformer  # noqa: E402
 from utils.patching_preprocess import brics_ids_from_smiles
 from trainer.entropy_model.entropy_process import group_ids_by_entropy
 
-try:
-    import selfies as sf  # type: ignore
-except Exception:
-    sf = None  # type: ignore
+import selfies as sf  # type: ignore
 
 
 def normalize_split(name: str) -> str:
@@ -74,6 +71,7 @@ def build_records(items: List[Dict]) -> Dict[str, List[Dict]]:
         try:
             smiles = selfies_to_smiles(selfies_str)
         except Exception:
+            print(f"selfies_to_smiles failed for {selfies_str}, skip it")
             continue
 
         atoms, coords = generate_conformer(smiles)
