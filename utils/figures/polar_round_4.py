@@ -10,7 +10,7 @@ prop_bold = font_manager.FontProperties(
     fname="./results/Times New Roman - Bold.ttf", size=32
 )
 prop_bold_large = font_manager.FontProperties(
-    fname="./results/Times New Roman - Bold.ttf", size=38
+    fname="./results/Times New Roman - Bold.ttf", size=44
 )
 # Load data into pandas dataframe
 
@@ -22,7 +22,7 @@ lith_dict1 = {
         "Chalk",
         "Limestone",
     ],
-    "COUNT": [0, 57.81, 67.08, 66.50, 74.55],
+    "COUNT": [0, 57.8, 67.0, 66.5, 74.5],
     "TASK": "Strct."
 }
 
@@ -34,7 +34,7 @@ lith_dict2 = {
         "Chalk",
         "Limestone",
     ],
-    "COUNT": [0, 47.06, 66.77, 64.77, 72.39],
+    "COUNT": [0, 47.0, 66.7, 64.7, 72.3],
     "TASK": "Src."
 }
 
@@ -46,7 +46,7 @@ lith_dict3 = {
         "Chalk",
         "Limestone",
     ],
-    "COUNT": [0, 32.44, 41.06, 42.17, 50.71],
+    "COUNT": [0, 32.4, 41.0, 42.1, 50.7],
     "TASK": "Prop."
 }
 
@@ -56,13 +56,13 @@ lith_dict4 = {
         "w/o Modality Fusion (-26.3%)",
         "w/o Dynamic Query (-10.7%)",
         "w/o Entropy Pathcing (-11.5%)",
-        "DyQ-Former (Baseline)", 
+        "EDT-Former", 
     ],
-    "COUNT": [0, 40.78, 40.83, 42.02, 48.58],
+    "COUNT": [0, 40.7, 40.8, 42.0, 48.5],
     "TASK": "App."
 }
 
-number_offset1 = [1.6, 0.55, 0.28, 0.19, 0.1]
+number_offset1 = [1.6, 0.5, 0.27, 0.15, 0.1]
 number_offset2 = [1.6, 0.8, 0.28, 0.21, 0.1]
 number_offset3 = [1.6, 0.75, 0.28, 0.29, 0.1]
 number_offset4 = [1.6, 0.75, 0.28, 0.29, 0.1]
@@ -177,6 +177,7 @@ def draw_figure(lith_dict, number_offset, max_value_full_ring, ax):
             color="black",
             fontweight="bold",
             fontproperties=prop_bold,
+            fontsize=40,
         )
 
     ax.text(
@@ -188,7 +189,7 @@ def draw_figure(lith_dict, number_offset, max_value_full_ring, ax):
         color="black",
         fontweight="bold",
         fontproperties=prop_bold,
-        fontsize=48,
+        fontsize=54,
         bbox=dict(
             boxstyle="round,pad=0.1,rounding_size=0.5",  # 圆角 + 内边距
             facecolor="lightgreen",  # 背景色
@@ -215,20 +216,20 @@ handles = [
 fig.legend(
     handles,
     [
-        "w/o Modality Fusion (-26.3%)",
-        "w/o Dynamic Query (-10.7%)",
-        "w/o Entropy Pathcing (-11.5%)",
-        "DyQ-Former (Baseline)", 
+        "W/O Modality Fusion (-26.3%)",
+        "W/O Dynamic Query (-10.7%)",
+        "W/O Entropy Pathcing (-11.5%)",
+        "EDT-Former", 
     ],     
     loc="upper center",         # 位置
-    bbox_to_anchor=(0.5, 0.85), # 偏移
+    bbox_to_anchor=(0.5, 0.87), # 偏移
     ncol=4,                    # 每行显示的图例数量
     frameon=True,              # 是否显示边框
     edgecolor="lightblue",        # 边框颜色
     fancybox=True,
-    handlelength=3.5,       # 颜色条长度 (默认1.5)
+    handlelength=2.5,       # 颜色条长度 (默认1.5)
     handleheight=1.5,       # 颜色条高度
-    handletextpad=0.8,      # 颜色条与文字的间距
+    handletextpad=0.4,      # 颜色条与文字的间距
     prop=prop_bold_large,
     borderpad=0.3           # 图例框内
 )

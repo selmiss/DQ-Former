@@ -9,29 +9,29 @@ metrics = ["(EM)", "(Pass@1)", "(EM)", "(Pass@1)", "(Percentile)", "(Resolved)"]
 
 # 模型
 models = [
-    "DyQ-Former-8B",
+    "EDT-Former-8.3B",
     "GPT-5",
     "Galactica-6.7B",
-    "Mol-Instructions-7B",
-    "Mol-Llama-8B",
-    "3D-MolLM-8B"
+    "Mol-Instructions-8B",
+    "Mol-Llama-3.1-8B",
+    "3D-MoLM-8B"
 ]
 
 # 每个模型的得分
 scores = np.array([
-    [77.87, 75.79, 50.20, 48.58, 82.31, 75.00],  # 模型1
+    [74.55, 72.93, 50.71, 48.58, 82.31, 75.00],  # 模型1
     [33.28, 33.49, 32.41, 26.26, 51.35, 62.20],  # 模型2
     [32.35, 41.92, 31.05, 28.21, 55.37, 59.31],  # 模型3
-    [75.93, 73.96, 46.22, 44.36, 53.29, 54.55],  # 模型4
-    [75.33, 73.20, 45.26, 45.71, 66.80, 58.06],  # 模型5
-    [69.64, 68.29, 43.19, 43.81, 53.93, 50.90],  # 模型6
+    [72.79, 70.82, 43.08, 41.22, 53.29, 54.55],  # 模型4
+    [73.16, 70.22, 45.70, 46.18, 66.80, 58.06],  # 模型5
+    [73.17, 70.50, 44.79, 44.19, 53.93, 50.90],  # 模型6
 ])
 
 # 柱状图参数
 bar_width = 0.13
 x = np.arange(len(tasks))
 colors = ["dodgerblue", "deepskyblue", "lightgrey", "tan", "khaki", "wheat"]
-prop = font_manager.FontProperties(fname="./results/Times New Roman.ttf", size=12)
+prop = font_manager.FontProperties(fname="./results/Times New Roman.ttf", size=18)
 prop_bold = font_manager.FontProperties(fname="./results/Times New Roman - Bold.ttf")
 print("Loaded font:", prop.get_name())
 rcParams["font.family"] = prop.get_name()
@@ -41,7 +41,7 @@ rcParams["font.family"] = prop.get_name()
 
 
 
-plt.figure(figsize=(12, 7))
+plt.figure(figsize=(12, 8))
 plt.grid(axis="y", color="lightgray", linestyle="-", linewidth=0.5)
 
 for i, model in enumerate(models):
@@ -53,14 +53,14 @@ for i, model in enumerate(models):
         color=colors[i],
         edgecolor="white",
         linewidth=0.5,
-        hatch="//" if "DyQ-Former" in model else None  # 给 DeepSeek-V3 加斜线
+        hatch="//" if "EDT-Former-8.3B" in model else None  # 给 DeepSeek-V3 加斜线
     )
     # 在柱子顶部加数值
     for xi, yi in zip(x + i * bar_width, scores[i]):
-        if "DyQ-Former" in model:
-            plt.text(xi, yi + 0.4, f"{yi:.1f}", ha="center", va="bottom", fontsize=14, fontweight="bold", fontproperties=prop_bold)
+        if "EDT-Former-8.3B" in model:
+            plt.text(xi, yi + 0.4, f"{yi:.1f}", ha="center", va="bottom", fontsize=15, fontweight="bold", fontproperties=prop_bold)
         else:
-            plt.text(xi, yi + 0.4, f"{yi:.1f}", ha="center", va="bottom", fontsize=10, fontproperties=prop)
+            plt.text(xi, yi + 0.4, f"{yi:.1f}", ha="center", va="bottom", fontsize=9, fontproperties=prop)
 
 # 坐标轴 & 样式
 
@@ -71,12 +71,13 @@ plt.ylabel("Accuracy (%)", fontproperties=prop, fontsize=18)
 
 plt.legend(
     loc="upper center",      # 图例放在图形上方
-    bbox_to_anchor=(0.5, 1.07),  # (x, y)，y>1 表示在图外上方
-    ncol=6,                  # 横向排列，3 列
+    bbox_to_anchor=(0.5, 1.16),  # (x, y)，y>1 表示在图外上方
+    ncol=3,                  # 横向排列，3 列
     frameon=True,            # 显示边框
-    # fontsize=20,              # 字体大小
+    fontsize=20,              # 字体大小
     edgecolor="lightblue",        # 边框颜色
-    prop=prop
+    prop=prop,
+    columnspacing=5
 )
 # 设置边框颜色和宽度
 ax = plt.gca()
@@ -90,6 +91,6 @@ for spine in ax.spines.values():
 plt.tight_layout()
 
 # 保存图片
-os.makedirs("./results", exist_ok=True)
-plt.savefig("./results/coverpage.pdf", dpi=600, bbox_inches="tight")  # 也可以保存为 PDF 矢量图
+os.makedirs("./utils/figures/results", exist_ok=True)
+plt.savefig("./utils/figures/results/coverpage_v2.pdf", dpi=600, bbox_inches="tight")  # 也可以保存为 PDF 矢量图
 plt.close()
