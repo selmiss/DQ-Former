@@ -39,6 +39,8 @@ class LLMConfig(PretrainedConfig):
 class QformerConfig(PretrainedConfig):
     model_type = 'mol_llama_qformer'
     base_config_key = 'qformer_config'
+    is_composition = True
+    sub_configs = {"lora_config": LoraConfig}
 
     def __init__(
         self,
@@ -49,6 +51,8 @@ class QformerConfig(PretrainedConfig):
         use_flash_attention=False,
         use_dq_encoder=False,
         max_local_query=64,  # Maximum number of local queries to ensure consistent tensor sizes in distributed training
+        enable_lora=False,
+        lora_config=None,
         **kwargs
     ):
         super().__init__(**kwargs)
@@ -59,6 +63,10 @@ class QformerConfig(PretrainedConfig):
         self.use_flash_attention = use_flash_attention
         self.use_dq_encoder = use_dq_encoder
         self.max_local_query = max_local_query
+        if lora_config is None:
+            lora_config = {}
+        self.lora_config = LoraConfig(**lora_config)
+        self.enable_lora = enable_lora
 
 class BlendingModuleConfig(PretrainedConfig):
     model_type = 'mol_llama_blending_module'

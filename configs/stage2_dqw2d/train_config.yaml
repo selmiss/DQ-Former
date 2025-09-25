@@ -25,3 +25,5 @@ freeze_llm: True
 brics_gids_enable: True
 entropy_gids_enable: True
 enable_blending: True
+
+enable_lora_qformer: False

@@ -87,6 +87,20 @@ def main(model_config, train_config, data_config, test_mode=False, resume_from=N
 
     model.load_from_stage1_ckpt(train_config.stage1_path)
 
+    if train_config.enable_lora_qformer:
+        peft_config = LoraConfig(
+            task_type=TaskType.SEQ_2_SEQ_LM,
+            inference_mode=False,
+            r=model_config.qformer_config.lora_config.r,
+            lora_alpha=model_config.qformer_config.lora_config.lora_alpha,
+            lora_dropout=model_config.qformer_config.lora_config.lora_dropout,
+            target_modules=[
+                'query', 'key', 'value', 'output.dense',
+                'intermediate.dense', 'output.dense'
+            ],
+        )
+        model.model.encoder.Qformer = get_peft_model(model.model.encoder.Qformer, peft_config)
+
     args = {
         "train": edict_to_dict(train_config),
         "model": edict_to_dict(model_config),
@@ -218,6 +232,7 @@ if __name__ == "__main__":
             "num_query_tokens": getattr(train_config, "num_query_tokens", 8),
             "embed_dim": getattr(train_config, "embed_dim", 256),
             "cross_attention_freq": getattr(train_config, "cross_attention_freq", 2),
+            "enable_lora": getattr(train_config, "enable_lora_qformer", False),
         },
         graph_encoder_config={"local_q_only": getattr(train_config, "local_q_only", False)},
         blending_module_config={

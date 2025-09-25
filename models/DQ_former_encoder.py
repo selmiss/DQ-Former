@@ -13,6 +13,7 @@ from torch.cuda.amp import autocast as autocast
 from torch.nn import functional as F
 
 from transformers import BertTokenizer, Blip2QFormerConfig, Blip2QFormerModel
+
 from huggingface_hub import hf_hub_download
 
 from unicore.data import Dictionary
@@ -183,6 +184,8 @@ class DQMolLLaMAEncoder(nn.Module):
         # )
 
         Qformer.resize_token_embeddings(len(tokenizer))
+
+        # Optionally wrap Q-Former with PEFT LoRA (use existing packages only)
 
         # ✅（2）扩展位置表 embedding（若预训练只有 512）
         old_embed = Qformer.bert.embeddings.position_embeddings
