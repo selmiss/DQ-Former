@@ -7,7 +7,7 @@ set -euo pipefail
 # Example preprocessing for the BBBP dataset (binary classification: blood-brain barrier penetration)
 # Expects directory with train.csv, valid.csv (or val.csv / validation.csv), and test.csv
 
-INPUT_DIR=/data/lab_ph/zihao/Nips/dataset/sft_tdc/BBB_Martins
+INPUT_DIR={DATA_DIR}/sft_tdc/BBB_Martins
 OUT_DIR=${DATA_DIR}/zeroshot/bbbp
 mkdir -p "${OUT_DIR}"
 
