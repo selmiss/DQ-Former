@@ -1,0 +1,31 @@
+name: edtformer
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pytorch::pytorch=2.5.*
+  # I prefer to use cuda-toolkit inside conda instead of installing it separately.
+  - nvidia::cuda-toolkit=12.4
+  - cudnn=8.9.1
+  - numpy
+  - scipy
+  - rdkit
+  - openbabel
+  # - flash-attn
+  - pip
+  - pip:
+      - lightning
+      - lightning-utilities
+      - transformers==4.49.0
+      - peft
+      - datasets>=4.3.0
+      - easydict
+      - deepspeed
+      - rouge_score
+      - nltk
+      - lmdb
+      - wandb
+

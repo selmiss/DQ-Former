@@ -13,7 +13,6 @@ from utils.configuration_mol_llama import MolLLaMAConfig
 from models.DQ_former_encoder import DQMolLLaMAEncoder
 from models.mol_llama_encoder import MolLLaMAEncoder
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, GenerationMixin, BitsAndBytesConfig, LlamaForCausalLM
-from unicore.data import Dictionary
 
 from collections import defaultdict
 from tqdm import tqdm

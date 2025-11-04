@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from unicore import utils
-from unicore.models import BaseUnicoreModel
+from utils.unicore import BaseUnicoreModel
 from unicore.modules import init_bert_params
 from models.unimol.transformer_encoder_with_pair import TransformerEncoderWithPair
 

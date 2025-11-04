@@ -10,12 +10,23 @@ Molecular understanding is central to scientific and drug discovery, yet LLMs st
 ### Environment Setup (conda)
 - **Prerequisites**: CUDA-ready PyTorch, Conda (miniconda/anaconda), and git.
 - Create and activate the environment:
+
+**Using environment.yml (Recommended)**
 ```bash
-conda create -n edtformer python=3.10 -y
+conda env create -f environment.yml
 conda activate edtformer
-pip install -r requirements.txt
+pip install --no-deps --no-build-isolation torch-geometric
+pip install --no-deps --no-build-isolation flash-attn
+pip install --no-deps --no-build-isolation torch-scatter
 ```
-- (Optional) Initialize environment variables (edit paths first):
+
+If you want to use Uni-Mol model as a encoder, please run:
+```bash
+git clone https://github.com/dptech-corp/Uni-Core.git
+pip install --no-deps --no-build-isolation ./Uni-Core/
+```
+
+- Initialize environment variables (edit paths first):
 ```bash
 # copy and edit
 cp init_env.sh init_env.local.sh

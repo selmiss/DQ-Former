@@ -23,7 +23,7 @@ class Stage1Dataset(Dataset):
         return data_graph, data_others['iupac_name'], data_others['brics_gids'] if 'brics_gids' in data_others else None, data_others['entropy_gids'] if 'entropy_gids' in data_others else None
 
 if __name__ == '__main__':
-    from unicore.data import Dictionary
+    from utils.unicore import Dictionary
     from torch.utils.data import DataLoader
     import torch
     from tqdm import tqdm

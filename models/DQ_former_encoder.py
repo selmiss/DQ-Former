@@ -16,7 +16,7 @@ from transformers import BertTokenizer, Blip2QFormerConfig, Blip2QFormerModel
 
 from huggingface_hub import hf_hub_download
 
-from unicore.data import Dictionary
+from utils.unicore import Dictionary
 
 from models.unimol.unimol import SimpleUniMolModel
 from models.moleculestm.moleculestm import MoleculeSTM
@@ -135,9 +135,7 @@ class DQMolLLaMAEncoder(nn.Module):
         )
         ckpt = torch.load(unimol_ckpt_path, map_location='cpu', weights_only=True)
 
-        # You may need to change some unicore code here.
         missing_keys, unexpected_keys = unimol_model.load_state_dict(ckpt['model'], strict=False, assign=True)
-        # Here, if you are using later transformers package, please change the original onicore function load_state_dict to load_state_dict(state_dict, strict, assign=True).
         
         ln_graph = nn.LayerNorm(unimol_model.num_features)
         

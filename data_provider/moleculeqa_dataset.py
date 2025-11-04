@@ -7,7 +7,6 @@ from datasets import load_dataset
 from pytorch_lightning import LightningDataModule
 from torch.utils.data import DataLoader
 from data_provider.collaters import Mol3DCollater
-from unicore.data import Dictionary
 from torch_geometric.data import Batch
 from transformers import BatchEncoding
 from data_provider.tokenization_utils import batch_tokenize_messages_list
