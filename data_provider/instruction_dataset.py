@@ -27,10 +27,10 @@ class InstructionDataset(Dataset):
             messages.append({"role": "assistant", "content": turn['assistant']})
             
         other_info = {
-            "cid": cid,
-            "names": [text_data['iupac_name']],
-            "task_type": text_data['type'],
-            "num_turns": len(text_data['conversations']),
+            # "cid": cid,
+            # "names": [text_data['iupac_name']],
+            # "task_type": text_data['type'],
+            # "num_turns": len(text_data['conversations']),
             "brics_gids": data_others['brics_gids'] if 'brics_gids' in data_others else None,
             "entropy_gids": data_others['entropy_gids'] if 'entropy_gids' in data_others else None,
         }        

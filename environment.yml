@@ -28,4 +28,6 @@ dependencies:
       - nltk
       - lmdb
       - wandb
+      - tensorboardX
+      - ml_collections
 

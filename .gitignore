@@ -1,5 +1,6 @@
 # Defined ignore files
 envs/
+local.env.sh
 /pampa/
 init_env_mine.sh
 wandb/

@@ -1,4 +1,4 @@
-filename: stage1_dqw2d_v2
+filename: stage1_dqw2d_test
 
 strategy_name: deepspeed
 accelerator: gpu

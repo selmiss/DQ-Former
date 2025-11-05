@@ -18,6 +18,7 @@ conda activate edtformer
 pip install --no-deps --no-build-isolation torch-geometric
 pip install --no-deps --no-build-isolation flash-attn
 pip install --no-deps --no-build-isolation torch-scatter
+# The torch-scatter installation will take a long time, please kindly wait for it.
 ```
 
 If you want to use Uni-Mol model as a encoder, please run:
