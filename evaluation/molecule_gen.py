@@ -16,6 +16,7 @@ from transformers import AutoTokenizer
 from utils.configuration_mol_llama import MolLLaMAConfig
 from models.DQ_former_encoder import DQMolLLaMAEncoder
 from data_provider.moleculeqa_dataset import MoleculeQADM
+from data_provider.finetune_dataset import determine_llm_version
 from trainer.moleculeqa_trainer import (
     MoleculeGENQATrainer,
     MoleculeQATrainer,
@@ -130,7 +131,7 @@ def main(model_config, train_config, data_config, resume_from=None, test_mode=Fa
             qformer_config=model_config.qformer_config,
             brics_gids_enable=train_config.brics_gids_enable,
             entropy_gids_enable=train_config.entropy_gids_enable,
-            enable_blending=train_config.enable_blending,
+            enable_blending=getattr(train_config, 'enable_blending', False),
         )
     if getattr(train_config, "llm_baseline", False):
         cus_model.model.resize_token_embeddings(len(tokenizer))
@@ -146,20 +147,8 @@ def main(model_config, train_config, data_config, resume_from=None, test_mode=Fa
     }
     cus_model.save_hyperparameters(args)
 
-    if "Llama-2" in model_config.llm_config.llm_model:
-        llm_version = "llama2"
-    elif "Llama-3" in model_config.llm_config.llm_model:
-        llm_version = "llama3"
-    elif "Qwen3" in model_config.llm_config.llm_model:
-        llm_version = "qwen3"
-    elif "Ministral" in model_config.llm_config.llm_model:
-        llm_version = "mistral"
-    elif "gemma" in model_config.llm_config.llm_model:
-        llm_version = "gemma"
-    else:
-        raise ValueError(
-            f"Unsupported model type. Choose 'llama2', 'llama3', 'qwen3', 'mistral', or 'gemma'."
-        )
+    # Determine LLM version from model config
+    llm_version = determine_llm_version(model_config.llm_config.llm_model)
 
     dm = MoleculeQADM(
         tokenizer=tokenizer,

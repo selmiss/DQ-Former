@@ -1,0 +1,33 @@
+# Model Configuration for Stage 2 / Finetuning
+# These parameters define the model architecture
+
+# Stage 1 checkpoint
+stage1_path: checkpoints/stage1_dqw2d/last.ckpt
+
+# QFormer Configuration
+use_flash_attention: True
+use_dq_encoder: True
+num_query_tokens: 8
+embed_dim: 256
+cross_attention_freq: 2
+
+# Graph Encoder Configuration
+local_q_only: False
+
+# Blending Module Configuration
+enable_blending: True
+num_layers: 4
+num_heads: 8
+
+# LLM Configuration
+llm_backbone: null  # Optional: override default LLM model
+freeze_llm: True
+enable_lora_qformer: False
+
+# Training-specific model settings
+tune_gnn: False
+temperature: 0.1
+enable_flash: True  # Flash attention for LLM
+brics_gids_enable: True
+entropy_gids_enable: True
+

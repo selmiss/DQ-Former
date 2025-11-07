@@ -34,16 +34,16 @@ def disabled_train(self, mode=True):
 
 def unlock_new_token_embeddings(embedding_layer, new_token_ids, init="mean"):
     """
-    只解冻 embedding_layer 中 new_token_ids 对应的行，
+    Unfreeze the rows in embedding_layer corresponding to new_token_ids,
     并可选初始化这些 token 的 embedding 向量。
 
     Args:
-        embedding_layer (nn.Embedding): 来自 self.llm.get_input_embeddings()
+        embedding_layer (nn.Embedding): from self.llm.get_input_embeddings()
         new_token_ids (List[int]): 新增 token 的 ID 列表
         init (str or None): 初始化策略。可选：
-            - "mean": 用原词表均值初始化
-            - "zero": 初始化为 0 向量
-            - None: 不初始化（保持默认随机）
+            - "mean": initialize with the mean of the original vocabulary
+            - "zero": initialize to 0 vector
+            - None: do not initialize (keep default random)
     """
     # 1. 全部冻结
     embedding_layer.weight.requires_grad = False
@@ -63,7 +63,7 @@ def unlock_new_token_embeddings(embedding_layer, new_token_ids, init="mean"):
     for idx in new_token_ids:
         embedding_layer.weight[idx].requires_grad = True
 
-    print(f"✅ 解冻了 {len(new_token_ids)} 个 token 的 embedding：{new_token_ids}")
+    print(f"✅ unfrozen {len(new_token_ids)} tokens: {new_token_ids}")
 
 
 class MolLLaMAPreTrainedModel(PreTrainedModel):
@@ -520,7 +520,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
     def load_from_stage1_ckpt(self, ckpt_path):
         print(f"Loading from stage1 checkpoint: {ckpt_path}")
 
-        ckpt = torch.load(ckpt_path, map_location='cpu')  # 去掉 weights_only
+        ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)  # 去掉 weights_only
         # 某些 checkpoint 是直接保存的 state_dict
         state_dict_raw = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
 

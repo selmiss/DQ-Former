@@ -1,0 +1,53 @@
+# Training Configuration for MoleculeQA Finetuning (HuggingFace TrainingArguments compatible)
+
+# Experiment naming
+run_name: moleculeqa_dqw2d
+
+# Training hyperparameters
+num_train_epochs: 10
+learning_rate: 1.0e-5  # Lower learning rate for MoleculeQA finetuning
+weight_decay: 0.05
+warmup_steps: 100
+lr_scheduler_type: "cosine"  # Must be quoted string
+
+# Batch size and accumulation
+per_device_train_batch_size: 2
+per_device_eval_batch_size: 8
+gradient_accumulation_steps: 64  # Effective batch size = 2 * num_gpus * 64
+
+# Precision
+bf16: True
+fp16: False
+
+# Checkpointing and evaluation
+save_strategy: "epoch"
+save_steps: 1  # save every N epochs
+save_total_limit: 3
+eval_strategy: "epoch"  # Evaluate every epoch for MoleculeQA
+load_best_model_at_end: True
+metric_for_best_model: "eval_accuracy"  # For QA tasks; use "eval_mae" for property tasks
+greater_is_better: True  # True for accuracy, False for MAE
+
+# Logging
+logging_steps: 10
+report_to:
+  - wandb
+
+# DataLoader settings
+dataloader_num_workers: 0  # Set to 0 for MoleculeQA due to complex data structure
+dataloader_persistent_workers: False
+dataloader_pin_memory: False
+dataloader_drop_last: True
+dataloader_prefetch_factor: null
+remove_unused_columns: False  # IMPORTANT: Keep our custom columns
+
+# Distributed training
+ddp_find_unused_parameters: False
+
+# Reproducibility
+seed: 0
+data_seed: 0
+
+# Note: deepspeed config path is set automatically by the training script
+# based on deepspeed_stage value (2 or 3) in the script itself
+

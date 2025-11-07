@@ -61,7 +61,7 @@ Common options:
 - `--test_mode`: small subset run
 - `--resume_from last` or a path: resume training
 
-Ensure the Stage 1 checkpoint path is set in the Stage 2 train config (e.g., `train_config.stage1_path`).
+Ensure the pretrained checkpoint path is set in the model config (e.g., `model_config.model_name_or_path`).
 
 ### Downstream Example: MoleculeQA
 Train/evaluate MoleculeQA with the main script in `evaluation/moleculeqa.py`:

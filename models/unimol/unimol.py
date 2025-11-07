@@ -68,7 +68,9 @@ class SimpleUniMolModel(BaseUnicoreModel):
         src_edge_type,
     ):
         padding_mask = src_tokens.eq(self.padding_idx).bool()
+
         x = self.embed_tokens(src_tokens)
+        
 
         def get_dist_features(dist, et):
             n_node = dist.size(-1)
