@@ -258,10 +258,11 @@ class DQMolLLaMAEncoder(nn.Module):
         else:
             return contextlib.nullcontext()
 
-    def compute_loss(self, graph_batch, text_batch, brics_gids, entropy_gids):
+    def compute_loss(self, graph_batch, text_batch):
         batch_size = text_batch.input_ids.shape[0]
-
-        batch_node, batch_mask, query_output = self.graph_forward(graph_batch, brics_gids=brics_gids, entropy_gids=entropy_gids)
+        
+        # graph_forward will extract brics_gids and entropy_gids from graph_batch
+        batch_node, batch_mask, query_output = self.graph_forward(graph_batch)
         
         graph_feats = self.graph_proj(query_output.last_hidden_state) # shape = [B, num_q, D]
         graph_feats = F.normalize(graph_feats, p=2, dim=-1)
@@ -399,7 +400,11 @@ class DQMolLLaMAEncoder(nn.Module):
         return padded, frag_mask, frag_ids_list
 
     
-    def graph_forward(self, graph_batch, brics_gids=None, entropy_gids=None):
+    def graph_forward(self, graph_batch):
+        # Extract brics_gids and entropy_gids from graph_batch
+        brics_gids = graph_batch.get('brics_gids', None)
+        entropy_gids = graph_batch.get('entropy_gids', None)
+        
         batch_nodes, batch_masks = {}, {}
         for encoder_type in self.encoder_types:
             batch_node, batch_mask = self.graph_encoder[encoder_type](**graph_batch[encoder_type])
@@ -416,7 +421,7 @@ class DQMolLLaMAEncoder(nn.Module):
         B, N, D = batch_node.shape                        # D == hidden_size
 
         # ------------------------------------------------------------
-        # TODO: Use BRICS-based molecular segmentation to pool sub-graphs into one embeddings, the output should be length of frags
+        # Use BRICS-based molecular segmentation to pool sub-graphs into one embeddings
         if self.brics_gids_enable and brics_gids is None:
             raise ValueError("brics_gids is required when brics_gids_enable is True, but got None")
         if self.entropy_gids_enable and entropy_gids is None:
@@ -475,34 +480,23 @@ class DQMolLLaMAEncoder(nn.Module):
         query_output.query_mask = query_mask
         return batch_node, batch_mask, query_output
 
-    def graph_forward_backup(self, graph_batch):
-        batch_nodes, batch_masks = {}, {}
-        for encoder_type in self.encoder_types:
-            # if encoder_type == 'unimol':
-            #     continue
-            batch_node, batch_mask = self.graph_encoder[encoder_type](**graph_batch[encoder_type])
-            batch_node = self.ln_graph[encoder_type](batch_node)
+    def forward(self, graph_batch):
+        """
+        Forward pass that wraps graph_forward.
+        This allows the model to be called directly: model(graph_batch)
+        
+        Args:
+            graph_batch: Graph data batch dictionary containing encoder data, 
+                        brics_gids, and entropy_gids
+            
+        Returns:
+            batch_node: Node embeddings [B, N, D]
+            batch_mask: Node attention mask [B, N]
+            query_output: Q-Former output with query embeddings
+        """
+        return self.graph_forward(graph_batch)
 
-            batch_nodes[encoder_type] = batch_node
-            batch_masks[encoder_type] = batch_mask
 
-        if self.enable_blending:
-            batch_node, batch_mask, _ = self.blending_module(batch_nodes, batch_masks)
-        else:
-            # When blending is disabled, use MoleculeSTM (since that's what we want)
-            batch_node = batch_nodes['unimol']
-            batch_mask = batch_masks['unimol']
-
-        query_tokens = self.query_tokens.expand(batch_node.shape[0], -1, -1)
-        query_output = self.Qformer.bert(
-            query_embeds=query_tokens,
-            encoder_hidden_states=batch_node,
-            encoder_attention_mask=batch_mask,
-            use_cache=True,
-            return_dict=True,
-        )
-
-        return batch_node, batch_mask, query_output
 
     def text_forward(self, input_ids, mask):
         text_output = self.Qformer.bert(input_ids, attention_mask=mask, return_dict=True)

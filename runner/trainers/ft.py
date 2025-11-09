@@ -12,7 +12,7 @@ class FinetuningTrainer(Trainer):
         
         Args:
             model: The model
-            inputs: Dictionary with graph_batch, text_batch, brics_gids, entropy_gids
+            inputs: Dictionary with graph_batch (containing brics_gids, entropy_gids), text_batch
             return_outputs: Whether to return outputs
             num_items_in_batch: Number of items in the batch (for newer transformers versions)
             
@@ -21,20 +21,12 @@ class FinetuningTrainer(Trainer):
         """
         graph_batch = inputs['graph_batch']
         text_batch = inputs['text_batch']
-        brics_gids = inputs.get('brics_gids', None)
-        entropy_gids = inputs.get('entropy_gids', None)
-        
-        # Construct other_infos for the model
-        other_infos = {
-            'brics_gids': brics_gids,
-            'entropy_gids': entropy_gids,
-        }
+        # brics_gids and entropy_gids are now in graph_batch and will be extracted by the model
         
         # Forward pass
         output = model(
             graph_batch=graph_batch,
             text_batch=text_batch,
-            other_infos=other_infos,
             return_dict=True
         )
         

@@ -148,7 +148,9 @@ class HFFinetuneCollator:
             batch: List of dictionaries from HFFinetuneDataset
             
         Returns:
-            Dictionary with graph_batch, text_batch, brics_gids, entropy_gids
+            Dictionary with:
+                - graph_batch: Dictionary containing encoder data, brics_gids, and entropy_gids
+                - text_batch: Tokenized text data
         """
         # Extract fields from batch
         data_graphs = [item['data_graphs'] for item in batch]
@@ -178,23 +180,23 @@ class HFFinetuneCollator:
             padding_side='left'
         )
         
+        # Add brics_gids and entropy_gids to graph_batch
+        # Only add if at least one is not None
+        if any(g is not None for g in brics_gids_list):
+            graph_batch['brics_gids'] = brics_gids_list
+        else:
+            graph_batch['brics_gids'] = None
+        
+        if any(g is not None for g in entropy_gids_list):
+            graph_batch['entropy_gids'] = entropy_gids_list
+        else:
+            graph_batch['entropy_gids'] = None
+        
         # Return all data
         result = {
             'graph_batch': graph_batch,
             'text_batch': text_batch,
         }
-        
-        # Only add brics_gids if at least one is not None
-        if any(g is not None for g in brics_gids_list):
-            result['brics_gids'] = brics_gids_list
-        else:
-            result['brics_gids'] = None
-        
-        # Only add entropy_gids if at least one is not None
-        if any(g is not None for g in entropy_gids_list):
-            result['entropy_gids'] = entropy_gids_list
-        else:
-            result['entropy_gids'] = None
         
         return result
 

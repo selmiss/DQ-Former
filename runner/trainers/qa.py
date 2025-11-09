@@ -180,14 +180,7 @@ class MoleculeQATrainer(Trainer):
         """
         graph_batch = inputs.get('graph_batch', {})
         text_batch = inputs['text_batch']
-        brics_gids = inputs.get('brics_gids', None)
-        entropy_gids = inputs.get('entropy_gids', None)
-        
-        # Construct other_infos for the model (aligned with stage2 pattern)
-        other_infos = {
-            'brics_gids': brics_gids,
-            'entropy_gids': entropy_gids,
-        }
+        # brics_gids and entropy_gids are now in graph_batch and will be extracted by the model
         
         if self.is_llm_baseline:
             # For LLM baseline, only use text_batch for forward pass
@@ -199,7 +192,7 @@ class MoleculeQATrainer(Trainer):
             loss = output.loss
         else:
             # Standard molecular + text training
-            output = model(graph_batch, text_batch, other_infos)
+            output = model(graph_batch, text_batch)
             loss = output['loss'] if isinstance(output, dict) else output.loss
         
         return (loss, output) if return_outputs else loss
@@ -527,14 +520,7 @@ class MoleculeGENQATrainer(Trainer):
         """Compute loss for training."""
         graph_batch = inputs.get('graph_batch', {})
         text_batch = inputs['text_batch']
-        brics_gids = inputs.get('brics_gids', None)
-        entropy_gids = inputs.get('entropy_gids', None)
-        
-        # Construct other_infos for the model (aligned with stage2 pattern)
-        other_infos = {
-            'brics_gids': brics_gids,
-            'entropy_gids': entropy_gids,
-        }
+        # brics_gids and entropy_gids are now in graph_batch and will be extracted by the model
         
         if getattr(self, 'is_llm_baseline', False):
             output = model(
@@ -544,7 +530,7 @@ class MoleculeGENQATrainer(Trainer):
             )
             loss = output.loss
         else:
-            output = model(graph_batch, text_batch, other_infos)
+            output = model(graph_batch, text_batch)
             loss = output['loss'] if isinstance(output, dict) else output.loss
 
         return (loss, output) if return_outputs else loss
@@ -833,14 +819,7 @@ class MoleculePropertyQATrainer(Trainer):
         """Compute loss for training."""
         graph_batch = inputs.get('graph_batch', {})
         text_batch = inputs['text_batch']
-        brics_gids = inputs.get('brics_gids', None)
-        entropy_gids = inputs.get('entropy_gids', None)
-        
-        # Construct other_infos for the model (aligned with stage2 pattern)
-        other_infos = {
-            'brics_gids': brics_gids,
-            'entropy_gids': entropy_gids,
-        }
+        # brics_gids and entropy_gids are now in graph_batch and will be extracted by the model
         
         if getattr(self, 'is_llm_baseline', False):
             output = model(
@@ -850,7 +829,7 @@ class MoleculePropertyQATrainer(Trainer):
             )
             loss = output.loss
         else:
-            output = model(graph_batch, text_batch, other_infos)
+            output = model(graph_batch, text_batch)
             loss = output['loss'] if isinstance(output, dict) else output.loss
 
         return (loss, output) if return_outputs else loss

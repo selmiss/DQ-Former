@@ -35,7 +35,7 @@ class PretrainTrainer(Trainer):
         
         Args:
             model: The model
-            inputs: Dictionary with graph_batch, text_batch, etc.
+            inputs: Dictionary with graph_batch (containing brics_gids, entropy_gids), text_batch, etc.
             return_outputs: Whether to return outputs
             num_items_in_batch: Number of items in the batch (for newer transformers versions)
             
@@ -44,16 +44,13 @@ class PretrainTrainer(Trainer):
         """
         graph_batch = inputs['graph_batch']
         text_batch = inputs['text_batch']
-        brics_gids = inputs.get('brics_gids', None)
-        entropy_gids = inputs.get('entropy_gids', None)
+        # brics_gids and entropy_gids are now in graph_batch
         # Note: iupac_names is in inputs but not needed for model forward
         
         # Forward pass
         loss_dict = model(
             graph_batch=graph_batch,
             text_batch=text_batch,
-            brics_gids=brics_gids,
-            entropy_gids=entropy_gids,
             return_dict=True
         )
         
@@ -77,7 +74,7 @@ class PretrainTrainer(Trainer):
         
         Args:
             model: The model
-            inputs: Dictionary with graph_batch, text_batch, iupac_names, etc.
+            inputs: Dictionary with graph_batch (containing brics_gids, entropy_gids), text_batch, etc.
             prediction_loss_only: Whether to return only the loss
             ignore_keys: Keys to ignore in the output
             
@@ -87,8 +84,7 @@ class PretrainTrainer(Trainer):
         # Extract only the fields needed by the model
         graph_batch = inputs['graph_batch']
         text_batch = inputs['text_batch']
-        brics_gids = inputs.get('brics_gids', None)
-        entropy_gids = inputs.get('entropy_gids', None)
+        # brics_gids and entropy_gids are now in graph_batch
         # Note: iupac_names is intentionally not passed to the model
         
         # Forward pass without gradient computation to save memory
@@ -96,8 +92,6 @@ class PretrainTrainer(Trainer):
             loss_dict = model(
                 graph_batch=graph_batch,
                 text_batch=text_batch,
-                brics_gids=brics_gids,
-                entropy_gids=entropy_gids,
                 return_dict=True
             )
         

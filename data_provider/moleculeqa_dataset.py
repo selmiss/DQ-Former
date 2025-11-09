@@ -114,7 +114,10 @@ class MoleculeQAHFCollator:
             batch: List of dictionaries from MoleculeQAHFDataset
             
         Returns:
-            Dictionary with graph_batch, text_batch, brics_gids, entropy_gids, other_infos (all tensors/lists)
+            Dictionary with:
+                - graph_batch: Dictionary containing encoder data, brics_gids, and entropy_gids
+                - text_batch: Tokenized text data
+                - other_infos: Dictionary with metadata for metrics computation (cid, task, answer, smiles)
         """
         # Extract fields from batch
         data_graphs = [item['data_graphs'] for item in batch]
@@ -153,24 +156,24 @@ class MoleculeQAHFCollator:
         )
         text_batch = tokenized
         
+        # Add brics_gids and entropy_gids to graph_batch
+        # Only add if at least one is not None
+        if any(g is not None for g in brics_gids_list):
+            graph_batch['brics_gids'] = brics_gids_list
+        else:
+            graph_batch['brics_gids'] = None
+        
+        if any(g is not None for g in entropy_gids_list):
+            graph_batch['entropy_gids'] = entropy_gids_list
+        else:
+            graph_batch['entropy_gids'] = None
+        
         # Return tensors only - same pattern as Stage2HFCollator
         result = {
             'graph_batch': graph_batch,
             'text_batch': text_batch,
             'other_infos': dict(other_infos),  # Convert defaultdict to dict
         }
-        
-        # Only add brics_gids if at least one is not None
-        if any(g is not None for g in brics_gids_list):
-            result['brics_gids'] = brics_gids_list
-        else:
-            result['brics_gids'] = None
-        
-        # Only add entropy_gids if at least one is not None
-        if any(g is not None for g in entropy_gids_list):
-            result['entropy_gids'] = entropy_gids_list
-        else:
-            result['entropy_gids'] = None
         
         return result
 

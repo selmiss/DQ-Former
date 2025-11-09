@@ -47,24 +47,21 @@ class EDTPretrainModel(nn.Module):
         self,
         graph_batch: Dict,
         text_batch: Dict,
-        brics_gids: Optional[torch.Tensor] = None,
-        entropy_gids: Optional[torch.Tensor] = None,
         return_dict: bool = True,
     ):
         """
         Forward pass that computes the loss.
         
         Args:
-            graph_batch: Dictionary containing graph data
+            graph_batch: Dictionary containing graph data (includes brics_gids and entropy_gids)
             text_batch: Dictionary containing text data
-            brics_gids: BRICS group IDs (optional)
-            entropy_gids: Entropy group IDs (optional)
             return_dict: Whether to return a dictionary
             
         Returns:
             Dictionary with 'loss' and individual loss components
         """
-        loss_dict = self.encoder.compute_loss(graph_batch, text_batch, brics_gids, entropy_gids)
+        # compute_loss will extract brics_gids and entropy_gids from graph_batch
+        loss_dict = self.encoder.compute_loss(graph_batch, text_batch)
         
         if return_dict:
             return loss_dict
@@ -120,22 +117,20 @@ class EDTFinetuneModel(nn.Module):
         self,
         graph_batch: Dict,
         text_batch: Dict,
-        other_infos: Dict,
         return_dict: bool = True,
     ):
         """
         Forward pass that computes the loss.
         
         Args:
-            graph_batch: Dictionary containing graph data
+            graph_batch: Dictionary containing graph data (includes brics_gids, entropy_gids)
             text_batch: Dictionary containing text data  
-            other_infos: Dictionary with additional information
             return_dict: Whether to return a dictionary
             
         Returns:
             Dictionary with 'loss' or just loss tensor
         """
-        output = self.model(graph_batch, text_batch, other_infos)
+        output = self.model(graph_batch, text_batch)
         
         if return_dict:
             return output

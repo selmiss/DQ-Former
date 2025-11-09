@@ -291,9 +291,10 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
 
 
 
-    def forward(self, graph_batch, text_batch, other_infos):
-
-        _, _, query_output = self.encoder.graph_forward(graph_batch, brics_gids=other_infos['brics_gids'], entropy_gids=other_infos['entropy_gids'])      
+    def forward(self, graph_batch, text_batch):
+        # brics_gids and entropy_gids are now in graph_batch
+        # The encoder will extract them automatically
+        _, _, query_output = self.encoder(graph_batch)
         query_output = self.llm_proj(query_output.last_hidden_state) #[batch_size,num_query_token,dim]
 
         inputs_embeds = self.llm.get_input_embeddings()(text_batch.input_ids) # [batch_size, max_len, dim]
@@ -349,7 +350,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
     ):
         # 1. 图→Query
 
-        _, _, query_output = self.encoder.graph_forward(graph_batch, brics_gids=brics_gids if brics_gids is not None else None, entropy_gids=entropy_gids if entropy_gids is not None else None)
+        _, _, query_output = self.encoder(graph_batch, brics_gids=brics_gids if brics_gids is not None else None, entropy_gids=entropy_gids if entropy_gids is not None else None)
         query_output = self.llm_proj(query_output.last_hidden_state)  # [B,Q,D]
 
         # 2. 原文本 embedding
@@ -389,53 +390,6 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
             temperature=temperature,
             top_p=top_p,
         )
-        return outputs
-
-    @torch.no_grad()
-    def generate_backup(
-        self,
-        graph_batch,
-        text_batch,
-        do_sample=False,
-        num_beams=1,
-        max_length=None,
-        min_length=1,
-        max_new_tokens=1024,
-        min_new_tokens=None,
-        repetition_penalty=1.0,
-        length_penalty=1.0,
-        num_return_sequences=1,
-        top_p=None,
-        temperature=None,
-        pad_token_id=None,
-        eos_token_id=None,
-    ):
-        _, _, query_output = self.encoder.graph_forward(graph_batch)
-        query_output = self.llm_proj(query_output.last_hidden_state) #[batch_size,num_query_token,dim]
-
-        inputs_embeds = self.llm.get_input_embeddings()(text_batch.input_ids) # [batch_size, max_len, dim]
-        
-        inputs_embeds[text_batch.mol_token_flag] = \
-            query_output.flatten(0, 1).to(inputs_embeds.dtype) # [batch_size, max_len, dim]
-
-        outputs = self.llm.generate(
-            inputs_embeds=inputs_embeds,
-            attention_mask=text_batch.attention_mask,
-            do_sample=do_sample,
-            num_beams=num_beams,
-            max_length=max_length,
-            min_length=min_length,
-            max_new_tokens=max_new_tokens,
-            min_new_tokens=min_new_tokens,
-            pad_token_id=pad_token_id,
-            eos_token_id=eos_token_id,
-            repetition_penalty=repetition_penalty,
-            length_penalty=length_penalty,
-            num_return_sequences=num_return_sequences,
-            temperature=temperature,
-            top_p=top_p,
-        )
-
         return outputs
 
     @torch.no_grad()
@@ -672,7 +626,7 @@ class MolLLaMA(MolLLaMAPreTrainedModel):
         self.encoder.text_proj = None
         self.encoder.gtm_head = None
 
-    def forward(self, graph_batch, text_batch, other_infos=None):
+    def forward(self, graph_batch, text_batch):
         _, _, query_output = self.encoder.graph_forward(graph_batch)      
         query_output = self.llm_proj(query_output.last_hidden_state) #[batch_size,num_query_token,dim]
 
@@ -709,8 +663,6 @@ class MolLLaMA(MolLLaMAPreTrainedModel):
         temperature=None,
         pad_token_id=None,
         eos_token_id=None,
-        brics_gids=None,
-        entropy_gids=None,
     ):
         _, _, query_output = self.encoder.graph_forward(graph_batch)
         query_output = self.llm_proj(query_output.last_hidden_state) #[batch_size,num_query_token,dim]
@@ -758,8 +710,6 @@ class MolLLaMA(MolLLaMAPreTrainedModel):
         temperature=None,
         pad_token_id=None,
         eos_token_id=None,
-        brics_gids=None,
-        entropy_gids=None,
     ):
         graph_batch = get_mol_graphs(smiles_list, self.encoder.unimol_dictionary, self.device)
         outputs = self.generate(
