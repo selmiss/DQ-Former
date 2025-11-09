@@ -15,7 +15,7 @@ else
 fi
 
 # Configuration
-export GPUs="5"  # GPU IDs to use
+export GPUs="6,7"  # GPU IDs to use
 export MASTER_PORT=29500  # Master port for distributed training
 
 # Set CUDA architecture to avoid compilation warnings
@@ -24,9 +24,9 @@ export MASTER_PORT=29500  # Master port for distributed training
 # export TORCH_CUDA_ARCH_LIST="8.0"  # Uncomment and set for your GPU
 export TORCH_CUDA_ARCH_LIST="8.0"
 
-# Launch with DeepSpeed
+# # Launch with DeepSpeed
 deepspeed --master_port ${MASTER_PORT} --include localhost:${GPUs} \
-    ${BASE_DIR}/runner/pretrain.py \
+    ${BASE_DIR}/runner/pretrain.py -- \
     --model_config_path ${BASE_DIR}/configs/stage1_dqw2d/model_config.yaml \
     --training_config_path ${BASE_DIR}/configs/stage1_dqw2d/training_config.yaml \
     --data_config_path ${BASE_DIR}/configs/stage1_dqw2d/data_config_preprocessed.yaml

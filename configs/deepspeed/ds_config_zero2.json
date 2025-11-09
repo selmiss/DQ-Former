@@ -19,7 +19,9 @@
             "weight_decay": "auto"
         }
     },
-
+    "distributed_training": {
+        "backend": "nccl"
+    },
     "zero_optimization": {
         "stage": 2,
         "allgather_partitions": true,

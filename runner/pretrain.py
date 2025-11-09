@@ -1,4 +1,5 @@
 import os
+from tkinter import FALSE
 import torch
 import warnings
 import argparse
@@ -8,7 +9,7 @@ from transformers.utils import logging
 import wandb
 
 # Configure transformers logging to show INFO level
-# logging.set_verbosity_info()
+logging.set_verbosity_info()
 logger = logging.get_logger(__name__)
 
 from models.configuration import MolLLaMAConfig
@@ -31,6 +32,12 @@ except ImportError:
 warnings.filterwarnings(
     "ignore", category=UserWarning, message="TypedStorage is deprecated"
 )
+
+def foo():
+    a = 1
+    b = 2
+    raise RuntimeError("This is a deliberate error thrown at the requested insertion point in runner/pretrain.py.")
+    return b
 
 def main(model_args, training_args, data_config, test_mode=False):
     """Main training function.
@@ -170,19 +177,19 @@ def main(model_args, training_args, data_config, test_mode=False):
         data_collator=data_collator,
         callbacks=callbacks,
     )
-    
+    print(next(model.parameters()).device)
+    foo()
     # Check for existing checkpoints
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir):
         last_checkpoint = get_last_checkpoint(training_args.output_dir)
-    
-    # Train
+
     if last_checkpoint is not None:
         logger.info(f"Resuming training from checkpoint: {last_checkpoint}")
         trainer.train(resume_from_checkpoint=last_checkpoint)
     else:
         logger.info("No checkpoint found, starting training from scratch")
-        trainer.train()
+        trainer.train() 
     
     # Save final model
     trainer.save_model(os.path.join(training_args.output_dir, "final_model"))
@@ -225,14 +232,13 @@ if __name__ == "__main__":
         default=-1,
         help="Local rank for distributed training (automatically set by DeepSpeed launcher)",
     )
-
+    
     args = parser.parse_args()
     
     # Get BASE_DIR for paths
     BASE_DIR = os.environ.get('BASE_DIR', os.path.dirname(os.path.abspath(__file__)))
     
     # Determine output directory from training config
-    import yaml
     with open(args.training_config_path, 'r') as f:
         training_config_preview = yaml.load(f, Loader=yaml.FullLoader)
     
