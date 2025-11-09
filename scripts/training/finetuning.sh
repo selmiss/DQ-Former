@@ -15,8 +15,8 @@ else
 fi
 
 # Configuration
-export GPUs="5,6"  # GPU IDs to use for finetuning
-export MASTER_PORT=29501  # Master port for distributed training (different from stage1)
+export GPUs="5"  # GPU IDs to use for finetuning
+export MASTER_PORT=29500  # Master port for distributed training (different from stage1)
 
 # Set CUDA architecture to avoid compilation warnings
 # Common options: "7.0" (V100), "8.0" (A100), "8.6" (RTX 3090), "8.9" (RTX 4090), "9.0" (H100)
@@ -29,5 +29,5 @@ deepspeed --master_port ${MASTER_PORT} --include localhost:${GPUs} \
     ${BASE_DIR}/runner/finetuning.py \
     --model_config_path ${BASE_DIR}/configs/stage2_dqw2d/model_config.yaml \
     --training_config_path ${BASE_DIR}/configs/stage2_dqw2d/training_config.yaml \
-    --data_config_path ${BASE_DIR}/configs/stage2_dqw2d/data_config.yaml
+    --data_config_path ${BASE_DIR}/configs/stage2_dqw2d/data_config_preprocessed.yaml
 

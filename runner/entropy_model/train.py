@@ -2,17 +2,20 @@
 import json, random, torch
 from pathlib import Path
 from transformers import Trainer, TrainingArguments
+from transformers.utils import logging
 
-from trainer.entropy_model.tokenizer import build_vocab, tokenize_atoms, save_vocab
-from trainer.entropy_model.dataset import SmilesAtomDataset, PadCollator
-from trainer.entropy_model.model import build_tiny_model
+from runner.entropy_model.tokenizer import build_vocab, tokenize_atoms, save_vocab
+from runner.entropy_model.dataset import SmilesAtomDataset, PadCollator
+from runner.entropy_model.model import build_tiny_model
 import wandb
 import os
+
+logger = logging.get_logger(__name__)
 
 JSON_PATH = f"{os.getenv('DATA_DIR')}/Mol-LLaMA-Instruct/pubchem-molecules.json"
 
 # 1. Build vocab
-print("Start building vocab...")
+logger.info("Start building vocab...")
 all_smiles = [x["smiles"] for x in json.loads(open(JSON_PATH).read())]
 vocab = build_vocab(all_smiles)
 save_vocab(vocab, "vocab.txt")
@@ -64,5 +67,5 @@ model.to('cuda')
 prompt = "c1ccccc1O"   # phenol
 inp = encode_atoms(prompt).to(model.device)
 gen = model.generate(inp, max_new_tokens=8, do_sample=True, top_p=0.9, temperature=0.8, eos_token_id=vocab["<eos>"])
-print("Prompt:", tokenize_atoms(prompt))
-print("Pred:", decode_atoms(gen[0].tolist())[len(tokenize_atoms(prompt)):])
+logger.info("Prompt:", tokenize_atoms(prompt))
+logger.info("Pred:", decode_atoms(gen[0].tolist())[len(tokenize_atoms(prompt)):])

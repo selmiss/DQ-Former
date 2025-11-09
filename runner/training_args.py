@@ -12,6 +12,9 @@ import torch
 from dataclasses import dataclass, field
 from typing import Optional, List
 from transformers import TrainingArguments, HfArgumentParser
+from transformers.utils import logging
+
+logger = logging.get_logger(__name__)
 
 
 @dataclass
@@ -56,6 +59,32 @@ class DataTrainingArguments:
     mol_type: Optional[str] = field(
         default="mol",
         metadata={"help": "Molecular representation type: 'mol', 'SMILES', 'SMILES,mol', 'SELFIES', 'SMILES,<graph>'."}
+    )
+    
+    # Preprocessed dataset options
+    use_preprocessed: bool = field(
+        default=False,
+        metadata={"help": "Whether to use preprocessed datasets (faster loading)."}
+    )
+    preprocessed_data: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to preprocessed data (local directory or HuggingFace Hub repo). HF automatically detects the type."}
+    )
+    use_streaming: bool = field(
+        default=False,
+        metadata={"help": "Whether to use streaming mode for very large datasets (requires preprocessed data from HF Hub)."}
+    )
+    cache_dir: Optional[str] = field(
+        default=None,
+        metadata={"help": "Cache directory for HuggingFace datasets (optional)."}
+    )
+    val_ratio: float = field(
+        default=0.01,
+        metadata={"help": "Validation set ratio if val.jsonl doesn't exist (only for finetuning, default: 0.1)."}
+    )
+    random_seed: int = field(
+        default=42,
+        metadata={"help": "Random seed for data splitting (default: 42)."}
     )
 
 
@@ -149,6 +178,10 @@ class ModelArguments:
         default=None,
         metadata={"help": "Path to pretrained checkpoint (Stage2 or later) to load from. Auto-detects checkpoint type. Used in downstream tasks."}
     )
+    zero_shot: bool = field(
+        default=False,
+        metadata={"help": "Whether to perform zero-shot evaluation without loading checkpoint weights."}
+    )
 
 
 def parse_args_from_yaml(
@@ -211,9 +244,9 @@ def parse_args_from_yaml(
             # Scale down workers per GPU to keep total workers reasonable
             adjusted_workers = max(2, min(original_workers, 12 // num_gpus))
             if adjusted_workers != original_workers:
-                print(f"⚠️  Multi-GPU detected: Adjusting dataloader_num_workers from {original_workers} to {adjusted_workers} per GPU")
-                print(f"   Total workers: {num_gpus} GPUs × {adjusted_workers} workers = {num_gpus * adjusted_workers} workers")
-                print(f"   (This prevents CPU contention in data loading)")
+                logger.warning(f"⚠️  Multi-GPU detected: Adjusting dataloader_num_workers from {original_workers} to {adjusted_workers} per GPU")
+                logger.warning(f"   Total workers: {num_gpus} GPUs × {adjusted_workers} workers = {num_gpus * adjusted_workers} workers")
+                logger.warning(f"   (This prevents CPU contention in data loading)")
                 # Update the training_args
                 training_args.dataloader_num_workers = adjusted_workers
     

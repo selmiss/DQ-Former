@@ -11,7 +11,7 @@ from sklearn.metrics import f1_score, precision_score
 
 from transformers import AutoTokenizer, LlamaForCausalLM
 from models.mol_llama import MolLLaMA, DQMolLLaMA, DQMolLLaMAEncoder
-from utils.configuration_mol_llama import MolLLaMAConfig
+from models.configuration import MolLLaMAConfig
 
 from dataset import ZeroshotDataset, ZeroshotCollater
 

@@ -9,7 +9,7 @@ import torch.nn as nn
 from torch.cuda.amp import autocast as autocast
 from peft import get_peft_model, LoraConfig, TaskType
 
-from utils.configuration_mol_llama import MolLLaMAConfig
+from models.configuration import MolLLaMAConfig
 from models.DQ_former_encoder import DQMolLLaMAEncoder
 from models.mol_llama_encoder import MolLLaMAEncoder
 from transformers import AutoTokenizer, AutoModelForCausalLM, PreTrainedModel, GenerationMixin, BitsAndBytesConfig, LlamaForCausalLM
@@ -24,6 +24,8 @@ from data_provider.mol_dataset import smiles2graph, get_unimol_data
 from data_provider.collaters import Mol3DCollater
 import numpy as np
 import logging
+from safetensors.torch import load_file as load_safetensors
+from pathlib import Path
 logger = logging.getLogger(__name__)
 
 def disabled_train(self, mode=True):
@@ -518,20 +520,54 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
             assert k.startswith("graph_encoder.")
     
     def load_from_stage1_ckpt(self, ckpt_path):
+        """
+        Load stage1 checkpoint from either PyTorch Lightning checkpoint or HuggingFace safetensors.
+        
+        Args:
+            ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
+        """
         print(f"Loading from stage1 checkpoint: {ckpt_path}")
-
-        ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)  # 去掉 weights_only
-        # 某些 checkpoint 是直接保存的 state_dict
-        state_dict_raw = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
-
-        # 提取 encoder 的参数
-        state_dict = {k[8:]: v for k, v in state_dict_raw.items() if k.startswith("encoder.")}
-        # print(f"state_dict: {state_dict.keys()}")
-        # print(f"self.encoder.state_dict().keys(): {self.encoder.state_dict().keys()}")
+        
+        path = Path(ckpt_path)
+        
+        # Detect file type and load accordingly
+        if path.suffix == '.safetensors':
+            # Load HuggingFace safetensor format
+            print("Detected safetensors format")
+            state_dict_raw = load_safetensors(ckpt_path)
+        else:
+            # Load PyTorch Lightning checkpoint format
+            print("Detected PyTorch checkpoint format")
+            ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+            # Some checkpoints save state_dict directly, others wrap it
+            state_dict_raw = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
+        
+        # Extract encoder parameters
+        # Handle different possible prefixes: "encoder.", "model.encoder.", etc.
+        state_dict = {}
+        for k, v in state_dict_raw.items():
+            if k.startswith("encoder."):
+                # Remove "encoder." prefix (8 chars)
+                state_dict[k[8:]] = v
+            elif k.startswith("model.encoder."):
+                # Remove "model.encoder." prefix (14 chars)
+                state_dict[k[14:]] = v
+        
+        if not state_dict:
+            print(f"Warning: No encoder weights found. Available keys: {list(state_dict_raw.keys())[:5]}...")
+        
+        print(f"Found {len(state_dict)} encoder parameters to load")
+        
+        # Load state dict into encoder
         missing_keys, unexpected_keys = self.encoder.load_state_dict(state_dict, strict=False, assign=True)
-        assert len(unexpected_keys) == 0, f"unexpected keys: {unexpected_keys}"
+        
+        assert len(unexpected_keys) == 0, f"Unexpected keys found: {unexpected_keys}"
+        
+        # Validate missing keys - only graph_encoder keys are allowed to be missing
         for k in missing_keys:
             assert k.startswith("graph_encoder."), f"Missing unexpected key: {k}"
+        
+        print(f"✅ Successfully loaded encoder weights from {ckpt_path}")
 
 
 class MolLLaMA(MolLLaMAPreTrainedModel):
@@ -770,19 +806,54 @@ class MolLLaMA(MolLLaMAPreTrainedModel):
             assert k.startswith("graph_encoder.")
     
     def load_from_stage1_ckpt(self, ckpt_path):
+        """
+        Load stage1 checkpoint from either PyTorch Lightning checkpoint or HuggingFace safetensors.
+        
+        Args:
+            ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
+        """
         print(f"Loading from stage1 checkpoint: {ckpt_path}")
-
-        ckpt = torch.load(ckpt_path, map_location='cpu')  # 去掉 weights_only
-        # 某些 checkpoint 是直接保存的 state_dict
-        state_dict_raw = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
-
-        # 提取 encoder 的参数
-        state_dict = {k[8:]: v for k, v in state_dict_raw.items() if k.startswith("encoder.")}
-
+        
+        path = Path(ckpt_path)
+        
+        # Detect file type and load accordingly
+        if path.suffix == '.safetensors':
+            # Load HuggingFace safetensor format
+            print("Detected safetensors format")
+            state_dict_raw = load_safetensors(ckpt_path)
+        else:
+            # Load PyTorch Lightning checkpoint format
+            print("Detected PyTorch checkpoint format")
+            ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+            # Some checkpoints save state_dict directly, others wrap it
+            state_dict_raw = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
+        
+        # Extract encoder parameters
+        # Handle different possible prefixes: "encoder.", "model.encoder.", etc.
+        state_dict = {}
+        for k, v in state_dict_raw.items():
+            if k.startswith("encoder."):
+                # Remove "encoder." prefix (8 chars)
+                state_dict[k[8:]] = v
+            elif k.startswith("model.encoder."):
+                # Remove "model.encoder." prefix (14 chars)
+                state_dict[k[14:]] = v
+        
+        if not state_dict:
+            print(f"Warning: No encoder weights found. Available keys: {list(state_dict_raw.keys())[:5]}...")
+        
+        print(f"Found {len(state_dict)} encoder parameters to load")
+        
+        # Load state dict into encoder
         missing_keys, unexpected_keys = self.encoder.load_state_dict(state_dict, strict=False)
-        assert len(unexpected_keys) == 0, f"unexpected keys: {unexpected_keys}"
+        
+        assert len(unexpected_keys) == 0, f"Unexpected keys found: {unexpected_keys}"
+        
+        # Validate missing keys - only graph_encoder keys are allowed to be missing
         for k in missing_keys:
             assert k.startswith("graph_encoder."), f"Missing unexpected key: {k}"
+        
+        print(f"✅ Successfully loaded encoder weights from {ckpt_path}")
 
         
 def gen_3d_conformation_from_rdkit(smiles):

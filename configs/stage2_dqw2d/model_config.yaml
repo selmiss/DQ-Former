@@ -2,7 +2,7 @@
 # These parameters define the model architecture
 
 # Stage 1 checkpoint
-stage1_path: checkpoints/stage1_dqw2d/last.ckpt
+stage1_path: checkpoints/stage1_dqw2d/final_model/model.safetensors
 
 # QFormer Configuration
 use_flash_attention: True

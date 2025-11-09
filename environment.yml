@@ -30,4 +30,4 @@ dependencies:
       - wandb
       - tensorboardX
       - ml_collections
-
+      - scikit-learn

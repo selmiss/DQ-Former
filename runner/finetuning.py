@@ -7,17 +7,29 @@ from transformers import (
     AutoTokenizer,
 )
 from transformers.trainer_utils import get_last_checkpoint
+from transformers.utils import logging
 import wandb
+
+logger = logging.get_logger(__name__)
 
 from peft import get_peft_model, LoraConfig, TaskType
 
-from utils.configuration_mol_llama import MolLLaMAConfig
+from models.configuration import MolLLaMAConfig
 from models.edt_former import EDTFinetuneModel
 from runner.training_args import (
     parse_args_from_yaml,
 )
-from data_provider.finetune_dataset import create_finetuning_dataset, determine_llm_version
+from data_provider.finetune_dataset import create_finetune_dataset, determine_llm_version
 from runner.trainers.ft import FinetuningTrainer
+
+# Import new preprocessed dataset loaders for finetuning
+try:
+    from runner.dataset_creator import create_hf_finetune_dataset
+    HF_FT_DATASETS_AVAILABLE = True
+    logger.info("HuggingFace dataset_creator module available. Using preprocessed dataset loader.")
+except ImportError:
+    HF_FT_DATASETS_AVAILABLE = False
+    logger.warning("HuggingFace dataset_creator module not available. Using original dataset loader.")
 
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -101,7 +113,7 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
 
     # Load from Stage 1 checkpoint
     if model_args.stage1_path:
-        print(f"Loading from Stage 1 checkpoint: {model_args.stage1_path}")
+        logger.info(f"Loading from Stage 1 checkpoint: {model_args.stage1_path}")
         model.load_from_stage1_ckpt(model_args.stage1_path)
 
     # Apply LoRA to Qformer if enabled
@@ -118,23 +130,68 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
             ],
         )
         model.model.encoder.Qformer = get_peft_model(model.model.encoder.Qformer, peft_config)
-        print("LoRA enabled for Qformer")
+        logger.info("LoRA enabled for Qformer")
 
     # Determine LLM version from model config
     llm_version = determine_llm_version(model_config.llm_config.llm_model)
 
-    # Create dataset and collator using pure HuggingFace approach
-    train_dataset, data_collator = create_finetuning_dataset(
-        tokenizer=tokenizer,
-        llm_version=llm_version,
-        root=data_config.root,
-        unimol_dictionary=model.model.encoder.unimol_dictionary,
-        encoder_types=model_config.graph_encoder_config.encoder_types,
-        data_types=data_config.data_types,
-        test_mode=test_mode,
-        brics_gids_enable=model_args.brics_gids_enable,
-        entropy_gids_enable=model_args.entropy_gids_enable,
-    )
+    # Determine whether to use preprocessed datasets
+    use_preprocessed = getattr(data_config, 'use_preprocessed', False)
+    
+    if use_preprocessed and HF_FT_DATASETS_AVAILABLE:
+        logger.info("=" * 80)
+        logger.info("Using PREPROCESSED finetuning datasets (faster loading!)")
+        logger.info("=" * 80)
+        
+        # Get data path - can be local directory, local file, or HuggingFace Hub repo
+        # HF datasets library automatically detects and handles all cases!
+        data_path = getattr(data_config, 'preprocessed_data', None)
+        
+        if not data_path:
+            raise ValueError(
+                "use_preprocessed=True but no 'preprocessed_data' specified in data config"
+            )
+        
+        logger.info(f"Loading preprocessed data from: {data_path}")
+        
+        # Use unified loading function - HF datasets handles local/Hub automatically
+        train_dataset, val_dataset, data_collator = create_hf_finetune_dataset(
+            data_path=data_path,
+            tokenizer=tokenizer,
+            llm_version=llm_version,
+            pad_idx=model.model.encoder.unimol_dictionary.pad(),
+            encoder_types=model_config.graph_encoder_config.encoder_types,
+            streaming=getattr(data_config, 'use_streaming', False),
+            cache_dir=getattr(data_config, 'cache_dir', None),
+            val_ratio=getattr(data_config, 'val_ratio', 0.01),
+            random_seed=getattr(data_config, 'random_seed', 42),
+        )
+        
+        logger.info("✅ Preprocessed finetuning datasets loaded successfully!")
+        logger.info("=" * 80)
+    else:
+        # Use original dataset loader (with on-the-fly processing)
+        if use_preprocessed and not HF_FT_DATASETS_AVAILABLE:
+            logger.warning("⚠️  use_preprocessed=True but HF ft_datasets not available. Falling back to original loader.")
+        
+        logger.info("=" * 80)
+        logger.info("Using ORIGINAL dataset loader (on-the-fly processing)")
+        logger.info("=" * 80)
+        
+        # Create dataset and collator using pure HuggingFace approach
+        train_dataset, data_collator = create_finetune_dataset(
+            tokenizer=tokenizer,
+            llm_version=llm_version,
+            root=data_config.root,
+            unimol_dictionary=model.model.encoder.unimol_dictionary,
+            encoder_types=model_config.graph_encoder_config.encoder_types,
+            data_types=data_config.data_types,
+            test_mode=test_mode,
+            brics_gids_enable=model_args.brics_gids_enable,
+            entropy_gids_enable=model_args.entropy_gids_enable,
+        )
+        
+        logger.info("=" * 80)
     
     # Calculate total training steps for distributed training
     # Note: HF Trainer will create DataLoader internally with DistributedSampler
@@ -170,6 +227,7 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         model=model,
         args=training_args,
         train_dataset=train_dataset,
+        eval_dataset=val_dataset if training_args.eval_strategy != "no" else None,
         data_collator=data_collator,
     )
     
@@ -191,10 +249,10 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     
     # Train
     if ckpt_path is not None:
-        print(f"Resuming training from checkpoint: {ckpt_path}")
+        logger.info(f"Resuming training from checkpoint: {ckpt_path}")
         trainer.train(resume_from_checkpoint=ckpt_path)
     else:
-        print("No resuming checkpoint found, starting finetuning from model")
+        logger.info("No resuming checkpoint found, starting finetuning from model")
         trainer.train()
     
     # Save final model
@@ -267,10 +325,10 @@ if __name__ == "__main__":
         deepspeed_config = os.path.join(BASE_DIR, "configs/deepspeed/ds_config_zero2.json")
     
     if not os.path.exists(deepspeed_config):
-        print(f"Warning: DeepSpeed config not found at {deepspeed_config}")
+        logger.warning(f"Warning: DeepSpeed config not found at {deepspeed_config}")
         deepspeed_config = None
     else:
-        print(f"Using DeepSpeed ZeRO-{args.deepspeed_stage} config: {deepspeed_config}")
+        logger.info(f"Using DeepSpeed ZeRO-{args.deepspeed_stage} config: {deepspeed_config}")
 
     # Parse arguments from YAML files using HfArgumentParser
     model_args, training_args, data_config = parse_args_from_yaml(
@@ -281,23 +339,23 @@ if __name__ == "__main__":
         deepspeed_config=deepspeed_config,
     )
 
-    print("-" * 60)
+    logger.info("-" * 60)
     detected_num_devices = torch.cuda.device_count() if torch.cuda.is_available() else 0
-    print(
+    logger.info(
         f"batch_size: {training_args.per_device_train_batch_size}\tnum_devices: {detected_num_devices}\taccumulate_grad_batches: {training_args.gradient_accumulation_steps}"
     )
-    print(
+    logger.info(
         f"Total batch size: {training_args.per_device_train_batch_size * detected_num_devices * training_args.gradient_accumulation_steps}"
     )
-    print("-" * 60)
+    logger.info("-" * 60)
     if data_config.data_types:
-        print(f"Data Types:")
+        logger.info(f"Data Types:")
         for data_type in data_config.data_types:
-            print(f"  - {data_type}")
-        print("-" * 60)
+            logger.info(f"  - {data_type}")
+        logger.info("-" * 60)
 
     if args.test_mode:
-        print("TEST MODE: Using small dataset for quick testing")
+        logger.info("TEST MODE: Using small dataset for quick testing")
     
     main(
         model_args,

@@ -1,13 +1,13 @@
 # Training Configuration for Stage 2 / Finetuning (HuggingFace TrainingArguments compatible)
 
 # Experiment naming
-run_name: stage2_dqw2d
+run_name: stage2_dqw2d_test
 
 # Training hyperparameters
 num_train_epochs: 2
 learning_rate: 1.0e-4
 weight_decay: 0.05
-warmup_steps: 1000
+warmup_steps: 100
 lr_scheduler_type: "cosine"  # Must be quoted string
 
 # Batch size and accumulation
@@ -23,11 +23,12 @@ fp16: False
 save_strategy: "epoch"
 save_steps: 1  # save every N epochs
 save_total_limit: null
-eval_strategy: "no"  # No evaluation for finetuning (must be quoted!)
+eval_strategy: "steps"  # Evaluate every N steps for finetuning (must be quoted!)
 load_best_model_at_end: False
+eval_steps: 1000  # Evaluate every N epochs when eval_strategy=epoch
 
 # Logging
-logging_steps: 10
+logging_steps: 100
 report_to:
   - wandb
 

@@ -12,6 +12,7 @@ from transformers import (
     Trainer,
     get_cosine_schedule_with_warmup,
 )
+from transformers.utils import logging
 from peft import LoraConfig, get_peft_model, TaskType
 from torch_geometric.data import Batch
 
@@ -21,6 +22,8 @@ from nltk.translate.bleu_score import corpus_bleu
 from nltk.translate.meteor_score import meteor_score
 from rouge_score import rouge_scorer
 import numpy as np
+
+logger = logging.get_logger(__name__)
 
 
 class MoleculeQATrainer(Trainer):
@@ -38,11 +41,11 @@ class MoleculeQATrainer(Trainer):
                 torch_dtype = "float32"
         
         self.use_dq_encoder = use_dq_encoder
-        print(f"use_dq_encoder: {use_dq_encoder}")
+        logger.info(f"use_dq_encoder: {use_dq_encoder}")
 
         if train_config.get('llm_baseline', False):
             # LLM baseline - only use language model without molecular encoders
-            print("Using LLM baseline: ", train_config.llm_model_path)
+            logger.info("Using LLM baseline: ", train_config.llm_model_path)
             # Use AutoModelForCausalLM to support Gemma, Qwen, Mistral, LLaMA, etc.
             if train_config.enable_flash:
                 try:
@@ -51,7 +54,7 @@ class MoleculeQATrainer(Trainer):
                         torch_dtype=torch_dtype,
                         attn_implementation="flash_attention_2",
                     )
-                    print("Using flash attention for LLM baseline")
+                    logger.info("Using flash attention for LLM baseline")
                 except TypeError:
                     # Some architectures may not accept attn_implementation
                     model = AutoModelForCausalLM.from_pretrained(
@@ -77,7 +80,7 @@ class MoleculeQATrainer(Trainer):
                     target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
                 )
                 model = get_peft_model(model, peft_config)
-                print("Applied LoRA to LLM baseline")
+                logger.info("Applied LoRA to LLM baseline")
             
             self.is_llm_baseline = True
         elif use_dq_encoder:
@@ -421,10 +424,10 @@ class MoleculeGENQATrainer(Trainer):
                 torch_dtype = "float32"
         
         self.use_dq_encoder = use_dq_encoder
-        print(f"use_dq_encoder: {use_dq_encoder}")
+        logger.info(f"use_dq_encoder: {use_dq_encoder}")
 
         if train_config.get('llm_baseline', False):
-            print("Using LLM baseline: ", train_config.llm_model_path)
+            logger.info("Using LLM baseline: ", train_config.llm_model_path)
             if train_config.enable_flash:
                 try:
                     model = AutoModelForCausalLM.from_pretrained(
@@ -432,7 +435,7 @@ class MoleculeGENQATrainer(Trainer):
                         torch_dtype=torch_dtype,
                         attn_implementation="flash_attention_2",
                     )
-                    print("Using flash attention for LLM baseline")
+                    logger.info("Using flash attention for LLM baseline")
                 except TypeError:
                     model = AutoModelForCausalLM.from_pretrained(
                         train_config.llm_model_path,
@@ -454,7 +457,7 @@ class MoleculeGENQATrainer(Trainer):
                     target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
                 )
                 model = get_peft_model(model, peft_config)
-                print("Applied LoRA to LLM baseline")
+                logger.info("Applied LoRA to LLM baseline")
             self.is_llm_baseline = True
         elif use_dq_encoder:
             self.is_llm_baseline = False
@@ -728,10 +731,10 @@ class MoleculePropertyQATrainer(Trainer):
                 torch_dtype = "float32"
         
         self.use_dq_encoder = use_dq_encoder
-        print(f"use_dq_encoder: {use_dq_encoder}")
+        logger.info(f"use_dq_encoder: {use_dq_encoder}")
 
         if train_config.get('llm_baseline', False):
-            print("Using LLM baseline: ", train_config.llm_model_path)
+            logger.info("Using LLM baseline: ", train_config.llm_model_path)
             if train_config.enable_flash:
                 try:
                     model = AutoModelForCausalLM.from_pretrained(
@@ -739,7 +742,7 @@ class MoleculePropertyQATrainer(Trainer):
                         torch_dtype=torch_dtype,
                         attn_implementation="flash_attention_2",
                     )
-                    print("Using flash attention for LLM baseline")
+                    logger.info("Using flash attention for LLM baseline")
                 except TypeError:
                     model = AutoModelForCausalLM.from_pretrained(
                         train_config.llm_model_path,
@@ -761,7 +764,7 @@ class MoleculePropertyQATrainer(Trainer):
                     target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
                 )
                 model = get_peft_model(model, peft_config)
-                print("Applied LoRA to LLM baseline")
+                logger.info("Applied LoRA to LLM baseline")
             self.is_llm_baseline = True
         elif use_dq_encoder:
             self.is_llm_baseline = False

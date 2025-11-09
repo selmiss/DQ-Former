@@ -3,9 +3,12 @@
 import torch, math
 from pathlib import Path
 from transformers import GPT2LMHeadModel
-from trainer.entropy_model.tokenizer import tokenize_atoms
-from trainer.entropy_model.model import build_tiny_model
+from transformers.utils import logging
+from runner.entropy_model.tokenizer import tokenize_atoms
+from runner.entropy_model.model import build_tiny_model
 import matplotlib.pyplot as plt
+
+logger = logging.get_logger(__name__)
 
 
 
@@ -109,11 +112,11 @@ if __name__ == "__main__":
         vocab_path="trainer/entropy_model/vocab.txt"
     )
     # Each row i corresponds to SMILES[i], each column t is entropy for predicting token at t+1
-    print("Entropy(bits) per position:\n", ent)
-    print("1 - p_max per position:\n", one_minus_pmax)
+    logger.info("Entropy(bits) per position:\n", ent)
+    logger.info("1 - p_max per position:\n", one_minus_pmax)
     # Calculate 75th percentile average of entropy values
     ent_75_avg = sum([torch.quantile(e, 0.75) for e in ent[0]]) / len(ent[0])
-    print("75th percentile average entropy:", ent_75_avg.item())
+    logger.info("75th percentile average entropy:", ent_75_avg.item())
 
     atoms_demo = [
         "O","C","O","C","N","C","C","N","C","C",

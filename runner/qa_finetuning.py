@@ -22,11 +22,14 @@ from transformers import (
     AutoTokenizer,
 )
 from transformers.trainer_utils import get_last_checkpoint
+from transformers.utils import logging
 import wandb
+
+logger = logging.get_logger(__name__)
 
 from peft import get_peft_model, LoraConfig, TaskType
 
-from utils.configuration_mol_llama import MolLLaMAConfig
+from models.configuration import MolLLaMAConfig
 from runner.training_args import (
     ModelArguments,
     DataTrainingArguments,
@@ -34,6 +37,14 @@ from runner.training_args import (
 )
 from data_provider.moleculeqa_dataset import create_moleculeqa_datasets
 from data_provider.finetune_dataset import determine_llm_version
+
+# Try importing HF dataset loaders (for preprocessed data)
+HF_MOLECULEQA_DATASETS_AVAILABLE = False
+try:
+    from runner.dataset_creator.hf_moleculeqa_dataset import create_hf_moleculeqa_datasets
+    HF_MOLECULEQA_DATASETS_AVAILABLE = True
+except ImportError:
+    logger.warning("HF MoleculeQA dataset loader not available. Only original data loading supported.")
 
 # Import trainers for metrics computation
 from runner.trainers.qa import (
@@ -65,8 +76,8 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     """
     torch.manual_seed(0)
     
-    # Get BASE_DIR for DeepSpeed config paths
-    BASE_DIR = os.environ.get('BASE_DIR', os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    # Set logging level to INFO for better visibility
+    logging.set_verbosity_info()
     
     # Initialize tokenizer
     if model_args.llm_backbone is not None:
@@ -82,9 +93,6 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     tokenizer.add_special_tokens({"pad_token": "[PAD]"})
     tokenizer.add_special_tokens({"additional_special_tokens": ["<mol>", "<graph>"]})
     tokenizer.mol_token_id = tokenizer("<mol>", add_special_tokens=False).input_ids[0]
-
-    mol_id = tokenizer.convert_tokens_to_ids("<mol>")
-    pad_id = tokenizer.convert_tokens_to_ids("[PAD]")
 
     # Create model config from parsed arguments
     model_config = MolLLaMAConfig(
@@ -118,9 +126,8 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     # Determine LLM version from model config
     llm_version = determine_llm_version(model_config.llm_config.llm_model, default="llama3")
 
-    # Load unimol_dictionary first (before creating datasets)
-    # Following the same pattern as DQ_former_encoder.py init_unimol_encoder
-    print("Loading UniMol dictionary...")
+    # Load unimol_dictionary first (needed for both data loading paths)
+    logger.info("Loading UniMol dictionary...")
     from huggingface_hub import hf_hub_download
     from utils.unicore import Dictionary
     
@@ -131,38 +138,88 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     )
     unimol_dictionary = Dictionary.load(unimol_dictionary_path)
     unimol_dictionary.add_symbol("[MASK]", is_special=True)
-    print(f"✅ Loaded UniMol dictionary with {len(unimol_dictionary)} symbols")
+    logger.info(f"✅ Loaded UniMol dictionary with {len(unimol_dictionary)} symbols")
     
-    # Create datasets using the dictionary
-    print("Creating MoleculeQA datasets...")
+    # Determine whether to use preprocessed datasets
+    use_preprocessed = getattr(data_config, 'use_preprocessed', False)
     
-    # Determine limits for test mode
-    train_limit = 100 if test_mode else None
-    val_limit = 50 if test_mode else None
-    test_limit = 50 if test_mode else None
+    if use_preprocessed and HF_MOLECULEQA_DATASETS_AVAILABLE:
+        logger.info("=" * 80)
+        logger.info("Using PREPROCESSED MoleculeQA datasets (faster loading!)")
+        logger.info("=" * 80)
+        
+        # Get data path - can be local directory or HuggingFace Hub repo
+        data_path = getattr(data_config, 'preprocessed_data', None)
+        
+        if not data_path:
+            raise ValueError(
+                "use_preprocessed=True but no 'preprocessed_data' specified in data config"
+            )
+        
+        logger.info(f"Loading preprocessed data from: {data_path}")
+        
+        # Use HF dataset loader - automatically handles local/Hub sources
+        datasets, data_collator = create_hf_moleculeqa_datasets(
+            data_path=data_path,
+            tokenizer=tokenizer,
+            llm_version=llm_version,
+            pad_idx=unimol_dictionary.pad(),
+            encoder_types=model_config.graph_encoder_config.encoder_types,
+            mol_type=getattr(data_config, 'mol_type', 'mol'),
+            cache_dir=getattr(data_config, 'cache_dir', None),
+            streaming=getattr(data_config, 'use_streaming', False),
+        )
+        
+        train_dataset = datasets['train']
+        val_dataset = datasets.get('test', None)  # MoleculeQA uses 'test' as validation
+        test_dataset = datasets.get('test', None)
+        
+        logger.info(f"✅ Loaded preprocessed datasets")
+        
+    elif use_preprocessed and not HF_MOLECULEQA_DATASETS_AVAILABLE:
+        raise ImportError(
+            "Preprocessed data loading requested but HF MoleculeQA dataset loader not available. "
+            "Please ensure runner/dataset_creator/hf_moleculeqa_dataset.py exists."
+        )
+        
+    else:
+        logger.info("=" * 80)
+        logger.info("Using ORIGINAL MoleculeQA datasets (on-the-fly processing)")
+        logger.info("=" * 80)
+        
+        # Determine limits for test mode
+        train_limit = 100 if test_mode else None
+        val_limit = 50 if test_mode else None
+        test_limit = 50 if test_mode else None
+        
+        # Clear cache if requested (only on rank 0 to avoid race conditions)
+        if training_args.local_rank in [-1, 0]:
+            if hasattr(training_args, '_clear_cache') and training_args._clear_cache:
+                from utils.cache_utils import clear_cache
+                clear_cache(verbose=True)
+        
+        datasets, data_collator = create_moleculeqa_datasets(
+            tokenizer=tokenizer,
+            llama_version=llm_version,
+            root=data_config.root,
+            unimol_dictionary=unimol_dictionary,
+            encoder_types=model_config.graph_encoder_config.encoder_types,
+            mol_type=getattr(data_config, 'mol_type', 'mol'),
+            train_limit=train_limit,
+            val_limit=val_limit,
+            test_limit=test_limit,
+            brics_gids_enable=model_args.brics_gids_enable,
+            entropy_gids_enable=model_args.entropy_gids_enable,
+            use_cache=True,
+        )
+        
+        train_dataset = datasets['train']
+        val_dataset = datasets['test']
+        test_dataset = datasets['test']
     
-    datasets, data_collator = create_moleculeqa_datasets(
-        tokenizer=tokenizer,
-        llama_version=llm_version,
-        root=data_config.root,
-        unimol_dictionary=unimol_dictionary,
-        encoder_types=model_config.graph_encoder_config.encoder_types,
-        mol_type=getattr(data_config, 'mol_type', 'mol'),
-        train_limit=train_limit,
-        val_limit=val_limit,
-        test_limit=test_limit,
-        brics_gids_enable=model_args.brics_gids_enable,
-        entropy_gids_enable=model_args.entropy_gids_enable,
-        use_cache=True,
-    )
-    
-    train_dataset = datasets['train']
-    val_dataset = datasets['test']
-    test_dataset = datasets['test']
-    
-    print(f"Train size: {len(train_dataset)}")
-    print(f"Val size: {len(val_dataset)}")
-    print(f"Test size: {len(test_dataset)}")
+    logger.info(f"Train size: {len(train_dataset)}")
+    logger.info(f"Val size: {len(val_dataset)}")
+    logger.info(f"Test size: {len(test_dataset)}")
     
     # Calculate total training steps for distributed training
     num_samples = len(train_dataset)
@@ -177,10 +234,11 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     
     # Determine task type and use appropriate trainer
     task_type = getattr(data_config, 'task_type', 'qa')
-    print(f"Task type: {task_type}")
+    logger.info(f"Task type: {task_type}")
     
     # Select appropriate trainer based on task type
-    if task_type == 'generation':
+    # Note: 'caption' and 'generation' are aliases for the same trainer
+    if task_type in ['generation', 'caption']:
         trainer_class = MoleculeGENQATrainer
     elif task_type == 'property':
         trainer_class = MoleculePropertyQATrainer
@@ -217,6 +275,7 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         'brics_gids_enable': model_args.brics_gids_enable,
         'entropy_gids_enable': model_args.entropy_gids_enable,
         'enable_blending': model_args.enable_blending,
+        'zero_shot': model_args.zero_shot,
     })
     
     # Create trainer with actual datasets (no workaround needed!)
@@ -234,11 +293,19 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         data_collator=data_collator,
     )
     
-    # Load from pretrained checkpoint (Stage 2 full model) if provided
-    # The trainer has already created the model, so we just load weights into it
+    # Load from pretrained checkpoint (Stage 2 full model)
+    # Note: Zero-shot mode REQUIRES a checkpoint for evaluation!
     if model_args.model_name_or_path:
-        print(f"Loading from pretrained checkpoint: {model_args.model_name_or_path}")
+        logger.info(f"Loading from pretrained checkpoint: {model_args.model_name_or_path}")
         trainer.load_from_ckpt(model_args.model_name_or_path)
+    elif model_args.zero_shot:
+        raise ValueError(
+            "Zero-shot mode requires a pretrained checkpoint! "
+            "Please provide model_name_or_path in your model config."
+        )
+    else:
+        logger.warning("⚠️  No checkpoint provided - using randomly initialized weights")
+        logger.warning("   This is only appropriate for debugging, not for actual training/evaluation")
     
     # Apply LoRA to Qformer if enabled (after checkpoint loading)
     if model_args.enable_lora_qformer:
@@ -254,7 +321,7 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
             ],
         )
         trainer.model.encoder.Qformer = get_peft_model(trainer.model.encoder.Qformer, peft_config)
-        print("LoRA enabled for Qformer")
+        logger.info("LoRA enabled for Qformer")
     
     # Check for existing checkpoints or resume_from parameter
     ckpt_path = None
@@ -272,28 +339,33 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         if os.path.isdir(training_args.output_dir):
             ckpt_path = get_last_checkpoint(training_args.output_dir)
     
-    # Train
-    if ckpt_path is not None:
-        print(f"Resuming training from checkpoint: {ckpt_path}")
+    # Train (skip if zero-shot mode)
+    if model_args.zero_shot:
+        logger.info("=" * 80)
+        logger.info("🎯 Zero-shot evaluation mode: Skipping training, evaluating pretrained model directly")
+        logger.info("=" * 80)
+    elif ckpt_path is not None:
+        logger.info(f"Resuming training from checkpoint: {ckpt_path}")
         trainer.train(resume_from_checkpoint=ckpt_path)
     else:
-        print("No resuming checkpoint found, starting finetuning from model")
+        logger.info("No resuming checkpoint found, starting finetuning from model")
         trainer.train()
     
     # Evaluate on validation set if available
     if val_dataset is not None and len(val_dataset) > 0:
-        print("\nEvaluating on validation set...")
+        logger.info("\nEvaluating on validation set...")
         eval_results = trainer.evaluate()
-        print(f"Validation results: {eval_results}")
+        logger.info(f"Validation results: {eval_results}")
     
     # Test on test set
     if test_dataset is not None and len(test_dataset) > 0:
-        print("\nTesting on test set...")
+        logger.info("\nTesting on test set...")
         test_results = trainer.predict(test_dataset)
-        print(f"Test results saved to {training_args.output_dir}")
+        logger.info(f"Test results saved to {training_args.output_dir}")
     
-    # Save final model
-    trainer.save_model(os.path.join(training_args.output_dir, "final_model"))
+    # Save final model (skip if zero-shot mode)
+    if not model_args.zero_shot:
+        trainer.save_model(os.path.join(training_args.output_dir, "final_model"))
     
     # Close WandB
     if training_args.local_rank in [-1, 0]:
@@ -339,6 +411,12 @@ if __name__ == "__main__":
         default=-1,
         help="Local rank for distributed training (automatically set by DeepSpeed launcher)",
     )
+    parser.add_argument(
+        "--clear_cache",
+        action="store_true",
+        default=False,
+        help="Clear dataset cache before training (forces fresh data loading)",
+    )
 
     args = parser.parse_args()
     
@@ -362,10 +440,10 @@ if __name__ == "__main__":
         deepspeed_config = os.path.join(BASE_DIR, "configs/deepspeed/ds_config_zero2.json")
     
     if not os.path.exists(deepspeed_config):
-        print(f"Warning: DeepSpeed config not found at {deepspeed_config}")
+        logger.warning(f"Warning: DeepSpeed config not found at {deepspeed_config}")
         deepspeed_config = None
     else:
-        print(f"Using DeepSpeed ZeRO-{args.deepspeed_stage} config: {deepspeed_config}")
+        logger.info(f"Using DeepSpeed ZeRO-{args.deepspeed_stage} config: {deepspeed_config}")
 
     # Parse arguments from YAML files using HfArgumentParser
     model_args, training_args, data_config = parse_args_from_yaml(
@@ -376,25 +454,31 @@ if __name__ == "__main__":
         deepspeed_config=deepspeed_config,
     )
 
-    print("-" * 60)
+    logger.info("-" * 60)
     detected_num_devices = torch.cuda.device_count() if torch.cuda.is_available() else 0
-    print(
+    logger.info(
         f"batch_size: {training_args.per_device_train_batch_size}\tnum_devices: {detected_num_devices}\taccumulate_grad_batches: {training_args.gradient_accumulation_steps}"
     )
-    print(
+    logger.info(
         f"Total batch size: {training_args.per_device_train_batch_size * detected_num_devices * training_args.gradient_accumulation_steps}"
     )
-    print("-" * 60)
+    logger.info("-" * 60)
     
     task_type = getattr(data_config, 'task_type', 'qa')
     mol_type = getattr(data_config, 'mol_type', 'mol')
-    print(f"Task Type: {task_type}")
-    print(f"Mol Type: {mol_type}")
-    print(f"Data Root: {data_config.root}")
-    print("-" * 60)
+    logger.info(f"Task Type: {task_type}")
+    logger.info(f"Mol Type: {mol_type}")
+    logger.info(f"Data Root: {data_config.root}")
+    logger.info(f"Zero-shot Mode: {model_args.zero_shot}")
+    logger.info("-" * 60)
 
     if args.test_mode:
-        print("TEST MODE: Using small dataset for quick testing")
+        logger.info("TEST MODE: Using small dataset for quick testing")
+    
+    if args.clear_cache:
+        logger.info("CLEAR CACHE MODE: Will rebuild dataset cache from scratch")
+        # Pass the flag via training_args as a custom attribute
+        training_args._clear_cache = True
     
     main(
         model_args,

@@ -5,7 +5,6 @@ Pure HuggingFace implementation aligned with stage2_hf_dm.py pattern.
 import os
 import json
 import torch
-import pickle
 from collections import defaultdict
 from torch.utils.data import Dataset
 from datasets import load_dataset
@@ -14,9 +13,16 @@ from transformers import BatchEncoding
 
 from data_provider.collaters import Mol3DCollater
 from data_provider.tokenization_utils import batch_tokenize_messages_list
+from utils.cache_utils import (
+    get_cache_dir,
+    get_cache_path,
+    is_cache_valid,
+    load_cache,
+    save_cache
+)
 
 # Get cache directory from environment variable (absolute path)
-CACHE_DIR = os.environ.get('DATA_CACHE_DIR', os.path.join(os.environ.get('DATA_DIR', './data'), '.cache'))
+CACHE_DIR = get_cache_dir()
 
 
 class MoleculeQAHFDataset(Dataset):
@@ -208,8 +214,9 @@ def create_moleculeqa_dataset(
     
     # Create cache directory if it doesn't exist
     if use_cache:
-        os.makedirs(CACHE_DIR, exist_ok=True)
-        print(f'Cache directory: {CACHE_DIR}')
+        cache_dir = get_cache_dir()
+        os.makedirs(cache_dir, exist_ok=True)
+        print(f'Cache directory: {cache_dir}')
     
     # Determine which molecule file to use
     if split == 'train':
@@ -217,38 +224,31 @@ def create_moleculeqa_dataset(
     else:  # test or val
         mol_file = 'test_mol.json'
     
-    # Create cache key based on file and encoder types
-    cache_key = f"moleculeqa_{mol_file.replace('.json', '')}_{'-'.join(encoder_types)}"
-    cache_file = os.path.join(CACHE_DIR, f"mol_dataset_{cache_key}.pkl")
+    # Get paths
+    mol_file_path = os.path.join(root, mol_file)
+    if not os.path.exists(mol_file_path):
+        raise FileNotFoundError(f"Molecule file not found: {mol_file_path}")
+    
+    cache_path = get_cache_path(root, mol_file, encoder_types)
     
     # Try to load from cache
     mol_dataset = None
-    if use_cache and os.path.exists(cache_file):
-        print(f'Loading molecule dataset from cache: {cache_file}')
-        try:
-            with open(cache_file, 'rb') as f:
-                mol_dataset = pickle.load(f)
-            print('✅ Molecule dataset loaded from cache')
-        except Exception as e:
-            print(f'⚠️  Failed to load cache ({e}), loading from scratch...')
-            mol_dataset = None
+    
+    if use_cache and is_cache_valid(cache_path, mol_file_path):
+        mol_dataset = load_cache(cache_path, verbose=True)
+    else:
+        if use_cache and os.path.exists(cache_path):
+            print(f'⚠️  Cache is outdated (source file modified), rebuilding...')
     
     # If not loaded from cache, create and cache it
     if mol_dataset is None:
-        mol_file_path = os.path.join(root, mol_file)
         print(f'Loading molecule data from: {mol_file_path}')
         data_list = json.load(open(mol_file_path))
         mol_dataset = MolDataset_cid(data_list, unimol_dictionary, encoder_types)
         
         # Save to cache
         if use_cache:
-            print(f'Saving molecule dataset to cache: {cache_file}')
-            try:
-                with open(cache_file, 'wb') as f:
-                    pickle.dump(mol_dataset, f, protocol=pickle.HIGHEST_PROTOCOL)
-                print('✅ Molecule dataset cached successfully')
-            except Exception as e:
-                print(f'⚠️  Failed to save cache: {e}')
+            save_cache(mol_dataset, cache_path, verbose=True)
     
     # Load instruction dataset (HuggingFace datasets has built-in caching)
     json_path = os.path.join(root, f'{split}.json')

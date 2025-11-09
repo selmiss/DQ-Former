@@ -1,8 +1,11 @@
-from trainer.entropy_model.entropy import score_batch
+from runner.entropy_model.entropy import score_batch
 import torch
 import json, argparse
 from pathlib import Path
 from tqdm import tqdm
+from transformers.utils import logging
+
+logger = logging.get_logger(__name__)
 
 def group_ids_by_entropy(smiles, ckpt_dir, vocab_path, q=0.75):
     
@@ -85,7 +88,7 @@ def main():
         # Write as JSON
         Path(args.out_json).write_text(json.dumps(data, ensure_ascii=False))
     
-    print(f"Saved -> {args.out_json}")
+    logger.info(f"Saved -> {args.out_json}")
 
 if __name__ == "__main__":
     main()

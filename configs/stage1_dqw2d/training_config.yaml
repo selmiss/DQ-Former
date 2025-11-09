@@ -4,10 +4,10 @@
 run_name: stage1_dqw2d_test
 
 # Training hyperparameters
-num_train_epochs: 6
+num_train_epochs: 10
 learning_rate: 1.0e-4
 weight_decay: 0.05
-warmup_steps: 500
+warmup_steps: 100
 lr_scheduler_type: "cosine"  # Must be quoted string
 
 # Batch size and accumulation
@@ -24,11 +24,11 @@ save_strategy: "epoch"
 save_steps: 3  # save every N epochs when save_strategy=epoch
 save_total_limit: null
 eval_strategy: "epoch"  # Must be quoted string: "no", "steps", or "epoch"
-eval_steps: 3  # evaluate every N epochs when eval_strategy=epoch
+eval_steps: 1  # evaluate every N epochs when eval_strategy=epoch
 load_best_model_at_end: False
 
 # Logging
-logging_steps: 10
+logging_steps: 100
 report_to:
   - wandb
 

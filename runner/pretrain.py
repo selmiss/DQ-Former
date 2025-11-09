@@ -4,15 +4,28 @@ import warnings
 import argparse
 import yaml
 from transformers.trainer_utils import get_last_checkpoint
+from transformers.utils import logging
 import wandb
 
-from utils.configuration_mol_llama import MolLLaMAConfig
+# Configure transformers logging to show INFO level
+# logging.set_verbosity_info()
+logger = logging.get_logger(__name__)
+
+from models.configuration import MolLLaMAConfig
 from models.edt_former import EDTPretrainModel
 from runner.training_args import (
     parse_args_from_yaml,
 )
 from data_provider.pretrain_dataset import create_pretrain_datasets
 from runner.trainers.pretrain import PretrainTrainer, LossLoggingCallback
+
+# Import new preprocessed dataset loaders
+try:
+    from runner.dataset_creator import create_hf_pretrain_datasets
+    HF_DATASETS_AVAILABLE = True
+except ImportError:
+    HF_DATASETS_AVAILABLE = False
+    logger.warning("HuggingFace datasets module not available. Using original dataset loader.")
 
 ## for pyg bug
 warnings.filterwarnings(
@@ -52,27 +65,75 @@ def main(model_args, training_args, data_config, test_mode=False):
     
     if model_args.enable_blending:
         model_config.graph_encoder_config.encoder_types = ["unimol", "moleculestm"]
-        print(f"Caution: Using blending module" + "-" * 10)
+        logger.warning(f"Caution: Using blending module" + "-" * 10)
     
     # Initialize model
     model = EDTPretrainModel(model_config, model_args)
     
-    # Create datasets using HuggingFace-compatible implementation with caching
-    train_dataset, val_dataset, data_collator = create_pretrain_datasets(
-        unimol_dictionary=(
-            model.encoder.unimol_dictionary
-            if "unimol" in model_config.graph_encoder_config.encoder_types
-            else None
-        ),
-        scibert_tokenizer=model.encoder.scibert_tokenizer,
-        encoder_types=model_config.graph_encoder_config.encoder_types,
-        text_max_len=data_config.text_max_len,
-        root=data_config.root,
-        test_mode=test_mode,
-        brics_gids_enable=model_args.brics_gids_enable,
-        entropy_gids_enable=model_args.entropy_gids_enable,
-        use_cache=True,
-    )
+    # Determine whether to use preprocessed datasets
+    use_preprocessed = getattr(data_config, 'use_preprocessed', False)
+    
+    if use_preprocessed and HF_DATASETS_AVAILABLE:
+        logger.info("=" * 80)
+        logger.info("Using PREPROCESSED datasets (faster loading!)")
+        logger.info("=" * 80)
+        
+        # Get data path - can be local directory, local file, or HuggingFace Hub repo
+        # HF datasets library automatically detects and handles all cases!
+        data_path = getattr(data_config, 'preprocessed_data', None)
+        
+        if not data_path:
+            raise ValueError(
+                "use_preprocessed=True but no 'preprocessed_data' specified in data config"
+            )
+        
+        logger.info(f"Loading preprocessed data from: {data_path}")
+        
+        # Use unified loading function - HF datasets handles local/Hub automatically
+        train_dataset, val_dataset, data_collator = create_hf_pretrain_datasets(
+            data_path=data_path,
+            tokenizer=model.encoder.scibert_tokenizer,
+            text_max_len=data_config.text_max_len,
+            pad_idx=(
+                model.encoder.unimol_dictionary.pad()
+                if "unimol" in model_config.graph_encoder_config.encoder_types
+                else 0
+            ),
+            encoder_types=model_config.graph_encoder_config.encoder_types,
+            streaming=getattr(data_config, 'use_streaming', False),
+            cache_dir=getattr(data_config, 'cache_dir', None),
+            val_ratio=getattr(data_config, 'val_ratio', 0.01),
+            random_seed=getattr(data_config, 'random_seed', 42),
+        )
+        
+        logger.info("✅ Preprocessed datasets loaded successfully!")
+        logger.info("=" * 80)
+    else:
+        # Use original dataset loader (with on-the-fly processing)
+        if use_preprocessed and not HF_DATASETS_AVAILABLE:
+            logger.warning("⚠️  use_preprocessed=True but HF datasets not available. Falling back to original loader.")
+        
+        logger.info("=" * 80)
+        logger.info("Using ORIGINAL dataset loader (on-the-fly processing)")
+        logger.info("=" * 80)
+        
+        train_dataset, val_dataset, data_collator = create_pretrain_datasets(
+            unimol_dictionary=(
+                model.encoder.unimol_dictionary
+                if "unimol" in model_config.graph_encoder_config.encoder_types
+                else None
+            ),
+            scibert_tokenizer=model.encoder.scibert_tokenizer,
+            encoder_types=model_config.graph_encoder_config.encoder_types,
+            text_max_len=data_config.text_max_len,
+            root=data_config.root,
+            test_mode=test_mode,
+            brics_gids_enable=model_args.brics_gids_enable,
+            entropy_gids_enable=model_args.entropy_gids_enable,
+            use_cache=True,
+        )
+        
+        logger.info("=" * 80)
     
     # Calculate total training steps for distributed training
     num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
@@ -87,7 +148,7 @@ def main(model_args, training_args, data_config, test_mode=False):
     if training_args.local_rank in [-1, 0]:
         from dataclasses import asdict
         wandb.init(
-            project="stage1_v2",
+            project="edt_former_pretrain",
             name=training_args.run_name,
             config={
                 "training": training_args.to_dict(),
@@ -117,10 +178,10 @@ def main(model_args, training_args, data_config, test_mode=False):
     
     # Train
     if last_checkpoint is not None:
-        print(f"Resuming training from checkpoint: {last_checkpoint}")
+        logger.info(f"Resuming training from checkpoint: {last_checkpoint}")
         trainer.train(resume_from_checkpoint=last_checkpoint)
     else:
-        print("No checkpoint found, starting training from scratch")
+        logger.info("No checkpoint found, starting training from scratch")
         trainer.train()
     
     # Save final model
@@ -188,10 +249,10 @@ if __name__ == "__main__":
         deepspeed_config = os.path.join(BASE_DIR, "configs/deepspeed/ds_config_zero2.json")
     
     if not os.path.exists(deepspeed_config):
-        print(f"Warning: DeepSpeed config not found at {deepspeed_config}")
+        logger.warning(f"Warning: DeepSpeed config not found at {deepspeed_config}")
         deepspeed_config = None
     else:
-        print(f"Using DeepSpeed ZeRO-{args.deepspeed_stage} config: {deepspeed_config}")
+        logger.info(f"Using DeepSpeed ZeRO-{args.deepspeed_stage} config: {deepspeed_config}")
 
     # Parse arguments from YAML files using HfArgumentParser
     model_args, training_args, data_config = parse_args_from_yaml(
@@ -202,17 +263,17 @@ if __name__ == "__main__":
         deepspeed_config=deepspeed_config,
     )
 
-    print("-" * 60)
+    logger.info("-" * 60)
     detected_num_devices = torch.cuda.device_count() if torch.cuda.is_available() else 0
-    print(
+    logger.info(
         f"batch_size: {training_args.per_device_train_batch_size}\tnum_devices: {detected_num_devices}\taccumulate_grad_batches: {training_args.gradient_accumulation_steps}"
     )
-    print(
+    logger.info(
         f"Total batch size: {training_args.per_device_train_batch_size * detected_num_devices * training_args.gradient_accumulation_steps}"
     )
     if args.test_mode:
-        print("TEST MODE: Using small dataset for quick testing")
-    print("-" * 60)
+        logger.info("TEST MODE: Using small dataset for quick testing")
+    logger.info("-" * 60)
 
     main(model_args, training_args, data_config, test_mode=args.test_mode)
 

@@ -1,4 +1,0 @@
-num_workers: 16
-batch_size: 4
-root: data/Molecule-oriented_Instructions/mol_gen/
-task: caption

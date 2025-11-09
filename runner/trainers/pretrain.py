@@ -1,3 +1,4 @@
+import torch
 from transformers import Trainer
 from typing import Dict, Optional
 from transformers import TrainerCallback, TrainerState, TrainerControl
@@ -45,6 +46,7 @@ class PretrainTrainer(Trainer):
         text_batch = inputs['text_batch']
         brics_gids = inputs.get('brics_gids', None)
         entropy_gids = inputs.get('entropy_gids', None)
+        # Note: iupac_names is in inputs but not needed for model forward
         
         # Forward pass
         loss_dict = model(
@@ -68,6 +70,47 @@ class PretrainTrainer(Trainer):
             return loss, loss_dict
         else:
             return loss
+    
+    def prediction_step(self, model, inputs, prediction_loss_only, ignore_keys=None):
+        """
+        Override prediction_step to handle custom input format during evaluation.
+        
+        Args:
+            model: The model
+            inputs: Dictionary with graph_batch, text_batch, iupac_names, etc.
+            prediction_loss_only: Whether to return only the loss
+            ignore_keys: Keys to ignore in the output
+            
+        Returns:
+            Tuple of (loss, logits, labels)
+        """
+        # Extract only the fields needed by the model
+        graph_batch = inputs['graph_batch']
+        text_batch = inputs['text_batch']
+        brics_gids = inputs.get('brics_gids', None)
+        entropy_gids = inputs.get('entropy_gids', None)
+        # Note: iupac_names is intentionally not passed to the model
+        
+        # Forward pass without gradient computation to save memory
+        with torch.no_grad():
+            loss_dict = model(
+                graph_batch=graph_batch,
+                text_batch=text_batch,
+                brics_gids=brics_gids,
+                entropy_gids=entropy_gids,
+                return_dict=True
+            )
+        
+        loss = loss_dict['loss']
+        
+        # Store loss components for logging (evaluation mode)
+        if self.args.local_rank in [-1, 0]:
+            self.loss_history['val_loss_gtc'].append(float(loss_dict['loss_gtc']))
+            self.loss_history['val_loss_gtm'].append(float(loss_dict['loss_gtm']))
+            self.loss_history['val_loss_lm'].append(float(loss_dict['loss_lm']))
+        
+        # Return loss, None for logits, None for labels (pretraining doesn't need logits/labels)
+        return (loss, None, None)
     
     def log(self, logs: Dict[str, float], start_time: Optional[float] = None) -> None:
         """

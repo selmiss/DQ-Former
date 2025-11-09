@@ -3,7 +3,6 @@ import os
 from torch.utils.data import Dataset
 from data_provider.mol_dataset import smiles2graph, get_unimol_data
 from collections import defaultdict
-from transformers import BatchEncoding
 from torch_geometric.data import Data, Batch
 from data_provider.tokenization_utils import batch_tokenize_messages_list, batch_tokenize_messages_list_simple
 from data_provider.collaters import Mol3DCollater
