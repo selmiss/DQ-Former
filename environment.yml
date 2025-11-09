@@ -19,7 +19,7 @@ dependencies:
   - pip:
       - lightning
       - lightning-utilities
-      - transformers==4.49.0
+      - transformers
       - peft
       - datasets>=4.3.0
       - easydict
