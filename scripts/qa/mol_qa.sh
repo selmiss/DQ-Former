@@ -27,12 +27,6 @@ export TORCH_CUDA_ARCH_LIST="8.0"
 # Get deepspeed stage from argument or default to 2
 DEEPSPEED_STAGE=${1:-2}
 
-# Check for --clear-cache flag
-CLEAR_CACHE_FLAG=""
-if [[ "$*" == *"--clear-cache"* ]]; then
-    CLEAR_CACHE_FLAG="--clear_cache"
-    echo "Cache clearing enabled"
-fi
 
 echo "=========================================="
 echo "MoleculeQA DQ-Former Training"
@@ -48,9 +42,7 @@ deepspeed --master_port ${MASTER_PORT} --include localhost:${GPUs} \
     ${BASE_DIR}/runner/qa_finetuning.py \
     --model_config_path ${BASE_DIR}/configs/qa/mol_qa/model_config.yaml \
     --training_config_path ${BASE_DIR}/configs/qa/mol_qa/training_config.yaml \
-    --data_config_path ${BASE_DIR}/configs/qa/mol_qa/data_config_preprocessed.yaml \
-    --deepspeed_stage $DEEPSPEED_STAGE \
-    $CLEAR_CACHE_FLAG
+    --data_config_path ${BASE_DIR}/configs/qa/mol_qa/data_config_preprocessed.yaml
 
 echo "=========================================="
 echo "Training completed!"

@@ -33,11 +33,6 @@ warnings.filterwarnings(
     "ignore", category=UserWarning, message="TypedStorage is deprecated"
 )
 
-def foo():
-    a = 1
-    b = 2
-    raise RuntimeError("This is a deliberate error thrown at the requested insertion point in runner/pretrain.py.")
-    return b
 
 def main(model_args, training_args, data_config, test_mode=False):
     """Main training function.
@@ -177,8 +172,6 @@ def main(model_args, training_args, data_config, test_mode=False):
         data_collator=data_collator,
         callbacks=callbacks,
     )
-    print(next(model.parameters()).device)
-    foo()
     # Check for existing checkpoints
     last_checkpoint = None
     if os.path.isdir(training_args.output_dir):

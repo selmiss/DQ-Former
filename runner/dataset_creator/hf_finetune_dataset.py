@@ -53,10 +53,16 @@ def deserialize_unimol_data(data_dict):
 
 def deserialize_moleculestm_data(data_dict):
     """Convert serialized MoleculeSTM data back to PyG Data object."""
+    # Only include x, edge_index, edge_attr - no extra attributes
+    # Let PyG auto-infer num_nodes from x.size(0) to avoid collation issues
+    edge_attr = torch.LongTensor(data_dict['edge_attr'])
+    # Handle empty edge_attr: reshape [0] to [0, 3] for molecules without edges
+    if edge_attr.numel() == 0:
+        edge_attr = edge_attr.new_zeros((0, 3))
     return Data(
         x=torch.LongTensor(data_dict['node_feat']),
         edge_index=torch.LongTensor(data_dict['edge_index']),
-        edge_attr=torch.LongTensor(data_dict['edge_attr'])
+        edge_attr=edge_attr
     )
 
 

@@ -12,8 +12,8 @@ fi
 
 # Default paths
 DATA_DIR="${DATA_DIR:-./data}"
-MOL_QA_DIR="${MOL_QA_DIR:-$DATA_DIR/Molecule-oriented_Instructions/property_prediction_full}"
-OUTPUT_BASE_DIR="${OUTPUT_BASE_DIR:-$DATA_DIR/mol_prop}"
+MOL_QA_DIR="${MOL_QA_DIR:-$DATA_DIR/moleculeqa}"
+OUTPUT_BASE_DIR="${OUTPUT_BASE_DIR:-$DATA_DIR/mol_qa}"
 
 # Default parameters
 ENCODER_TYPES="${ENCODER_TYPES:-unimol moleculestm}"
@@ -47,45 +47,45 @@ SUCCESS_COUNT=0
 FAIL_COUNT=0
 
 # # Process train split
-# echo ""
-# echo "---------------------------------"
-# echo "Processing: train split"
-# echo "---------------------------------"
+echo ""
+echo "---------------------------------"
+echo "Processing: train split"
+echo "---------------------------------"
 
-# TRAIN_MOL_JSON="$MOL_QA_DIR/train_mol.json"
-# TRAIN_INSTRUCTION_JSON="$MOL_QA_DIR/train.json"
-# TRAIN_OUTPUT="$OUTPUT_BASE_DIR/train.jsonl"
+TRAIN_MOL_JSON="$MOL_QA_DIR/train_mol.json"
+TRAIN_INSTRUCTION_JSON="$MOL_QA_DIR/train.json"
+TRAIN_OUTPUT="$OUTPUT_BASE_DIR/train.jsonl"
 
-# if [ ! -f "$TRAIN_MOL_JSON" ]; then
-#     echo "⚠️  Warning: Train molecule file not found: $TRAIN_MOL_JSON"
-#     echo "   Skipping train split..."
-#     FAIL_COUNT=$((FAIL_COUNT + 1))
-# elif [ ! -f "$TRAIN_INSTRUCTION_JSON" ]; then
-#     echo "⚠️  Warning: Train instruction file not found: $TRAIN_INSTRUCTION_JSON"
-#     echo "   Skipping train split..."
-#     FAIL_COUNT=$((FAIL_COUNT + 1))
-# else
-#     python data_provider/preprocess/preprocess_moleculeqa_data.py \
-#         --mol_json "$TRAIN_MOL_JSON" \
-#         --instruction_json "$TRAIN_INSTRUCTION_JSON" \
-#         --output_jsonl "$TRAIN_OUTPUT" \
-#         --encoder_types $ENCODER_TYPES \
-#         --max_atoms "$MAX_ATOMS"
+if [ ! -f "$TRAIN_MOL_JSON" ]; then
+    echo "⚠️  Warning: Train molecule file not found: $TRAIN_MOL_JSON"
+    echo "   Skipping train split..."
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+elif [ ! -f "$TRAIN_INSTRUCTION_JSON" ]; then
+    echo "⚠️  Warning: Train instruction file not found: $TRAIN_INSTRUCTION_JSON"
+    echo "   Skipping train split..."
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+else
+    python data_provider/preprocess/preprocess_moleculeqa_data.py \
+        --mol_json "$TRAIN_MOL_JSON" \
+        --instruction_json "$TRAIN_INSTRUCTION_JSON" \
+        --output_jsonl "$TRAIN_OUTPUT" \
+        --encoder_types $ENCODER_TYPES \
+        --max_atoms "$MAX_ATOMS"
     
-#     if [ $? -eq 0 ]; then
-#         echo "✅ Success: train split"
-#         SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
+    if [ $? -eq 0 ]; then
+        echo "✅ Success: train split"
+        SUCCESS_COUNT=$((SUCCESS_COUNT + 1))
         
-#         # Print file size
-#         if [ -f "$TRAIN_OUTPUT" ]; then
-#             SIZE=$(du -h "$TRAIN_OUTPUT" | cut -f1)
-#             echo "   File size: $SIZE"
-#         fi
-#     else
-#         echo "❌ Failed: train split"
-#         FAIL_COUNT=$((FAIL_COUNT + 1))
-#     fi
-# fi
+        # Print file size
+        if [ -f "$TRAIN_OUTPUT" ]; then
+            SIZE=$(du -h "$TRAIN_OUTPUT" | cut -f1)
+            echo "   File size: $SIZE"
+        fi
+    else
+        echo "❌ Failed: train split"
+        FAIL_COUNT=$((FAIL_COUNT + 1))
+    fi
+fi
 
 # Process test split
 echo ""

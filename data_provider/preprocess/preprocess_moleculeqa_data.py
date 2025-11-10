@@ -75,8 +75,8 @@ def smiles2graph(smiles_string):
     return {
         'node_feat': x.tolist(),
         'edge_index': edge_index.tolist(),
-        'edge_attr': edge_attr.tolist(),
-        'num_nodes': len(x)
+        'edge_attr': edge_attr.tolist()
+        # num_nodes is auto-inferred by PyG from len(node_feat)
     }
 
 

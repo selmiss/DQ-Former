@@ -9,10 +9,10 @@ This script supports three types of MoleculeQA tasks:
 """
 
 import os
-import torch
 import warnings
 import argparse
 import yaml
+import torch
 from easydict import EasyDict as edict
 from typing import Dict, Optional
 from collections import defaultdict

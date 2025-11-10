@@ -15,7 +15,7 @@ else
 fi
 
 # Configuration
-export GPUs="5"  # GPU IDs to use for finetuning
+export GPUs="6,7"  # GPU IDs to use for finetuning
 export MASTER_PORT=29500  # Master port for distributed training (different from stage1)
 
 # Set CUDA architecture to avoid compilation warnings
