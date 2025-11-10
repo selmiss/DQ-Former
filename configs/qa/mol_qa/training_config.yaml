@@ -1,7 +1,7 @@
 # Training Configuration for MoleculeQA Finetuning (HuggingFace TrainingArguments compatible)
 
 # Experiment naming
-run_name: moleculeqa_dqw2d_large
+run_name: molqa_dqw2d
 
 # Training hyperparameters
 num_train_epochs: 10
@@ -12,7 +12,7 @@ lr_scheduler_type: "cosine"  # Must be quoted string
 
 # Batch size and accumulation
 per_device_train_batch_size: 4
-per_device_eval_batch_size: 8
+per_device_eval_batch_size: 4
 gradient_accumulation_steps: 32  # Effective batch size = 4 * num_gpus * 32
 
 # Precision
@@ -21,7 +21,7 @@ fp16: False
 
 # Checkpointing and evaluation
 save_strategy: "epoch"
-save_steps: 1  # save every N epochs
+save_steps: 10  # save every N epochs
 save_total_limit: 3
 eval_strategy: "epoch"  # Evaluate every epoch for MoleculeQA
 load_best_model_at_end: True
@@ -29,7 +29,7 @@ metric_for_best_model: "eval_accuracy"  # For QA tasks; use "eval_mae" for prope
 greater_is_better: True  # True for accuracy, False for MAE
 
 # Logging
-logging_steps: 10
+logging_steps: 50
 report_to:
   - wandb
 

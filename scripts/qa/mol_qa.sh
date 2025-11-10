@@ -1,11 +1,28 @@
 #!/bin/bash
 # MoleculeQA Finetuning Training Script
-# Usage: bash scripts/qa/mol_qa.sh [deepspeed_stage] [--clear-cache]
-# Example: bash scripts/qa/mol_qa.sh 2
-# Example with cache clearing: bash scripts/qa/mol_qa.sh 2 --clear-cache
 
-# Set BASE_DIR for DeepSpeed config paths
-export BASE_DIR=$(pwd)
+# Source environment setup
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+
+if [ -f "${PROJECT_ROOT}/local.env.sh" ]; then
+    echo "Sourcing local.env.sh..."
+    source "${PROJECT_ROOT}/local.env.sh"
+else
+    echo "Warning: local.env.sh not found. Please ensure environment variables are set."
+    : "${BASE_DIR:?Environment variable BASE_DIR not set}"
+    : "${DATA_DIR:?Environment variable DATA_DIR not set}"
+    export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
+fi
+
+# Configuration
+export GPUs="6,7"  # GPU IDs to use for MoleculeQA training
+export MASTER_PORT=29500  # Master port for distributed training
+
+# Set CUDA architecture to avoid compilation warnings
+# Common options: "7.0" (V100), "8.0" (A100), "8.6" (RTX 3090), "8.9" (RTX 4090), "9.0" (H100)
+# Set to your GPU architecture or leave commented to auto-detect
+export TORCH_CUDA_ARCH_LIST="8.0"
 
 # Get deepspeed stage from argument or default to 2
 DEEPSPEED_STAGE=${1:-2}
@@ -17,28 +34,21 @@ if [[ "$*" == *"--clear-cache"* ]]; then
     echo "Cache clearing enabled"
 fi
 
-# Set visible GPUs
-export CUDA_VISIBLE_DEVICES=5
-
-# Number of GPUs
-NUM_GPUS=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
-
 echo "=========================================="
 echo "MoleculeQA DQ-Former Training"
 echo "=========================================="
 echo "BASE_DIR: $BASE_DIR"
-echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
-echo "NUM_GPUS: $NUM_GPUS"
+echo "GPUs: $GPUs"
+echo "MASTER_PORT: $MASTER_PORT"
 echo "DeepSpeed Stage: $DEEPSPEED_STAGE"
 echo "=========================================="
 
 # Launch training with DeepSpeed
-deepspeed --num_gpus=$NUM_GPUS \
-    --master_port=29500 \
-    runner/qa_finetuning.py \
-    --model_config_path configs/qa/mol_qa/model_config.yaml \
-    --training_config_path configs/qa/mol_qa/training_config.yaml \
-    --data_config_path configs/qa/mol_qa/data_config.yaml \
+deepspeed --master_port ${MASTER_PORT} --include localhost:${GPUs} \
+    ${BASE_DIR}/runner/qa_finetuning.py \
+    --model_config_path ${BASE_DIR}/configs/qa/mol_qa/model_config.yaml \
+    --training_config_path ${BASE_DIR}/configs/qa/mol_qa/training_config.yaml \
+    --data_config_path ${BASE_DIR}/configs/qa/mol_qa/data_config_preprocessed.yaml \
     --deepspeed_stage $DEEPSPEED_STAGE \
     $CLEAR_CACHE_FLAG
 

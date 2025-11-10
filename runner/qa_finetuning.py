@@ -91,7 +91,7 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         )
 
     tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-    tokenizer.add_special_tokens({"additional_special_tokens": ["<mol>", "<graph>"]})
+    tokenizer.add_special_tokens({"additional_special_tokens": ["<mol>"]})
     tokenizer.mol_token_id = tokenizer("<mol>", add_special_tokens=False).input_ids[0]
 
     # Create model config from parsed arguments

@@ -2,26 +2,26 @@
 # These parameters define the model architecture
 
 # Pretrained checkpoint path (Stage 2 checkpoint for MoleculeQA training)
-model_name_or_path: checkpoints/stage2_dqw2d_large/final.ckpt  # Automatically loads Stage 2 full model checkpoint
+model_name_or_path: checkpoints/stage2_dqw2d/final_model/model.safetensors # Automatically loads Stage 2 full model checkpoint
 
 # QFormer Configuration
 use_flash_attention: True
 use_dq_encoder: True
-num_query_tokens: 16
-embed_dim: 512
-cross_attention_freq: 1
+num_query_tokens: 8
+embed_dim: 256
+cross_attention_freq: 2
 
 # Graph Encoder Configuration
 local_q_only: False
 
 # Blending Module Configuration
 enable_blending: True
-num_layers: 8
+num_layers: 4
 num_heads: 8
 
 # LLM Configuration
 llm_backbone: null  # Optional: override default LLM model (e.g., "meta-llama/Meta-Llama-3-8B")
-freeze_llm: False  # For MoleculeQA finetuning, we typically don't freeze LLM
+freeze_llm: True  # For MoleculeQA finetuning, we typically don't freeze LLM
 enable_lora_qformer: False
 
 # Training-specific model settings

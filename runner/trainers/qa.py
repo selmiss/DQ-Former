@@ -3,6 +3,7 @@ from typing import Any, Dict, Optional, Union, Tuple, List
 import json
 import re
 from collections import defaultdict
+from pathlib import Path
 
 import torch
 from torch import optim, nn
@@ -15,6 +16,7 @@ from transformers import (
 from transformers.utils import logging
 from peft import LoraConfig, get_peft_model, TaskType
 from torch_geometric.data import Batch
+from safetensors.torch import load_file as load_safetensors
 
 from models.mol_llama import MolLLaMA, DQMolLLaMA
 
@@ -135,12 +137,26 @@ class MoleculeQATrainer(Trainer):
         return ids if len(ids) > 0 else None
 
     def load_from_ckpt(self, ckpt_path):
+        """
+        Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors.
+        
+        Args:
+            ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
+        """
         if hasattr(self.model, 'load_from_ckpt'):
             self.model.load_from_ckpt(ckpt_path)
         else:
             # Load checkpoint manually
-            checkpoint = torch.load(ckpt_path, map_location='cpu')
-            self.model.load_state_dict(checkpoint['state_dict'], strict=False)
+            path = Path(ckpt_path)
+            if path.suffix == '.safetensors':
+                logger.info("Detected safetensors format")
+                state_dict = load_safetensors(ckpt_path)
+            else:
+                logger.info("Detected PyTorch checkpoint format")
+                checkpoint = torch.load(ckpt_path, map_location='cpu')
+                state_dict = checkpoint['state_dict'] if 'state_dict' in checkpoint else checkpoint
+            self.model.load_state_dict(state_dict, strict=False)
+            logger.info(f"✅ Successfully loaded weights from {ckpt_path}")
 
     def create_optimizer_and_scheduler(self, num_training_steps: int):
         """
@@ -487,11 +503,25 @@ class MoleculeGENQATrainer(Trainer):
         super().__init__(model=model, tokenizer=tokenizer, **kwargs)
 
     def load_from_ckpt(self, ckpt_path):
+        """
+        Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors.
+        
+        Args:
+            ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
+        """
         if hasattr(self.model, 'load_from_ckpt'):
             self.model.load_from_ckpt(ckpt_path)
         else:
-            checkpoint = torch.load(ckpt_path, map_location='cpu')
-            self.model.load_state_dict(checkpoint['state_dict'], strict=False)
+            path = Path(ckpt_path)
+            if path.suffix == '.safetensors':
+                logger.info("Detected safetensors format")
+                state_dict = load_safetensors(ckpt_path)
+            else:
+                logger.info("Detected PyTorch checkpoint format")
+                checkpoint = torch.load(ckpt_path, map_location='cpu')
+                state_dict = checkpoint['state_dict'] if 'state_dict' in checkpoint else checkpoint
+            self.model.load_state_dict(state_dict, strict=False)
+            logger.info(f"✅ Successfully loaded weights from {ckpt_path}")
 
     def create_optimizer_and_scheduler(self, num_training_steps: int):
         """Setup optimizer and scheduler for HF Trainer."""
@@ -786,11 +816,25 @@ class MoleculePropertyQATrainer(Trainer):
         super().__init__(model=model, tokenizer=tokenizer, **kwargs)
 
     def load_from_ckpt(self, ckpt_path):
+        """
+        Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors.
+        
+        Args:
+            ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
+        """
         if hasattr(self.model, 'load_from_ckpt'):
             self.model.load_from_ckpt(ckpt_path)
         else:
-            checkpoint = torch.load(ckpt_path, map_location='cpu')
-            self.model.load_state_dict(checkpoint['state_dict'], strict=False)
+            path = Path(ckpt_path)
+            if path.suffix == '.safetensors':
+                logger.info("Detected safetensors format")
+                state_dict = load_safetensors(ckpt_path)
+            else:
+                logger.info("Detected PyTorch checkpoint format")
+                checkpoint = torch.load(ckpt_path, map_location='cpu')
+                state_dict = checkpoint['state_dict'] if 'state_dict' in checkpoint else checkpoint
+            self.model.load_state_dict(state_dict, strict=False)
+            logger.info(f"✅ Successfully loaded weights from {ckpt_path}")
 
     def create_optimizer_and_scheduler(self, num_training_steps: int):
         """Setup optimizer and scheduler for HF Trainer."""

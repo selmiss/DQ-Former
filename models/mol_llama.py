@@ -436,20 +436,44 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         return outputs
 
     def load_from_ckpt(self, ckpt_path):
+        """
+        Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors.
+        
+        Args:
+            ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
+        """
         print(f"Loading from checkpoint: {ckpt_path}")
-
-        ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
-        if 'mol_llama.' in list(ckpt['state_dict'].keys())[0]:
+        
+        path = Path(ckpt_path)
+        
+        # Detect file type and load accordingly
+        if path.suffix == '.safetensors':
+            # Load HuggingFace safetensor format
+            print("Detected safetensors format")
+            state_dict_raw = load_safetensors(ckpt_path)
+        else:
+            # Load PyTorch checkpoint format
+            print("Detected PyTorch checkpoint format")
+            ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+            # Some checkpoints save state_dict directly, others wrap it
+            state_dict_raw = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
+        
+        # Determine prefix from keys
+        first_key = list(state_dict_raw.keys())[0]
+        if 'mol_llama.' in first_key:
             prefix_len = 10
             prefix = "mol_llama."
-        elif 'model.' in list(ckpt['state_dict'].keys())[0]:
+        elif 'model.' in first_key:
             prefix_len = 6
             prefix = "model."
         else:
             prefix_len = 0
             prefix = ""
-        # import pdb; pdb.set_trace()
-        state_dict = {k[prefix_len:]:v for k,v in ckpt['state_dict'].items() if k.startswith(prefix)}
+        
+        # Extract relevant state dict with prefix removal
+        state_dict = {k[prefix_len:]:v for k,v in state_dict_raw.items() if k.startswith(prefix)}
+        
+        print(f"Found {len(state_dict)} parameters to load")
 
         missing_keys, unexpected_keys = self.load_state_dict(state_dict, strict=False)
 
@@ -460,6 +484,8 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
                 print(f"❌ Unexpected missing key: {k}")
             assert k.startswith("encoder.graph_encoder.") or \
                 k.startswith("llm.") or k.startswith("encoder.static_q_mask")
+        
+        print(f"✅ Successfully loaded weights from {ckpt_path}")
         
     
     def load_from_stage1_ckpt_backup(self, ckpt_path):
@@ -732,16 +758,41 @@ class MolLLaMA(MolLLaMAPreTrainedModel):
         return outputs
 
     def load_from_ckpt(self, ckpt_path):
+        """
+        Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors.
+        
+        Args:
+            ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
+        """
         print(f"Loading from checkpoint: {ckpt_path}")
-
-        ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
-        state_dict = {k[10:]:v for k,v in ckpt['state_dict'].items() if k.startswith("mol_llama.")}
+        
+        path = Path(ckpt_path)
+        
+        # Detect file type and load accordingly
+        if path.suffix == '.safetensors':
+            # Load HuggingFace safetensor format
+            print("Detected safetensors format")
+            state_dict_raw = load_safetensors(ckpt_path)
+        else:
+            # Load PyTorch checkpoint format
+            print("Detected PyTorch checkpoint format")
+            ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+            # Some checkpoints save state_dict directly, others wrap it
+            state_dict_raw = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
+        
+        # Extract relevant state dict with prefix removal
+        state_dict = {k[10:]:v for k,v in state_dict_raw.items() if k.startswith("mol_llama.")}
+        
+        print(f"Found {len(state_dict)} parameters to load")
+        
         missing_keys, unexpected_keys = self.load_state_dict(state_dict, strict=False)
         assert len(unexpected_keys) == 0, f"unexpected keys: {unexpected_keys}"
         for k in missing_keys:
             if 'position_ids' in k: continue
             assert k.startswith("encoder.graph_encoder.") or \
                     k.startswith("llm.")
+        
+        print(f"✅ Successfully loaded weights from {ckpt_path}")
         
     
     def load_from_stage1_ckpt_backup(self, ckpt_path):

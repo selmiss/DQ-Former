@@ -1,7 +1,7 @@
 # Training Configuration for Molecule Generation/Captioning (HuggingFace TrainingArguments compatible)
 
 # Experiment naming
-run_name: molgen_dqw2d_large_v2
+run_name: molgen_dqw2d
 
 # Training hyperparameters
 num_train_epochs: 10
@@ -12,7 +12,7 @@ lr_scheduler_type: "cosine"  # Must be quoted string
 
 # Batch size and accumulation
 per_device_train_batch_size: 4
-per_device_eval_batch_size: 8
+per_device_eval_batch_size: 4
 gradient_accumulation_steps: 32  # Effective batch size = 4 * num_gpus * 32
 
 # Precision
