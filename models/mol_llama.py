@@ -91,6 +91,8 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         brics_gids_enable=False,
         entropy_gids_enable=False,
         enable_blending=False,
+        load_ckpt_before_peft=False,
+        ckpt_path=None,
     ):
         super().__init__(config)
 
@@ -142,6 +144,15 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
                 )
             self.llm.resize_token_embeddings(vocab_size)
             
+            # Create llm_proj BEFORE loading checkpoint so it can be loaded properly
+            self.llm_proj = nn.Linear(self.encoder.Qformer.config.hidden_size, 
+                                        self.llm.config.hidden_size)
+            
+            # Load checkpoint before PEFT if requested
+            if load_ckpt_before_peft and ckpt_path:
+                logger.info(f"🔧 Loading checkpoint BEFORE PEFT model creation: {ckpt_path}")
+                self._load_checkpoint_before_peft(ckpt_path)
+            
             peft_config = LoraConfig(task_type=TaskType.CAUSAL_LM,
                                         inference_mode=False,
                                         r=config.llm_config.lora_config.r,
@@ -149,6 +160,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
                                         lora_dropout=config.llm_config.lora_config.lora_dropout,
                                         target_modules=['k_proj', 'v_proj', 'q_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'])
             self.peft_config = peft_config
+            
             self.llm = get_peft_model(self.llm, peft_config)
             self.llm.print_trainable_parameters()
 
@@ -171,14 +183,15 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
             # 3. 冻结 & eval
             self.llm.eval()                # 关闭 dropout / LayerNorm 统计更新
             for p in self.llm.parameters():  
-                p.requires_grad = False    # 明确告诉框架“别把梯度算进去”
+                p.requires_grad = False    # 明确告诉框架"别把梯度算进去"
 
             if add_ids is not None:
                 embed = self.llm.get_input_embeddings()
                 unlock_new_token_embeddings(embed, add_ids, init="mean")
-        # -------------------------- train projector ----------------------------------
-        self.llm_proj = nn.Linear(self.encoder.Qformer.config.hidden_size, 
-                                    self.llm.config.hidden_size)
+            
+            # Create llm_proj for frozen LLM case too
+            self.llm_proj = nn.Linear(self.encoder.Qformer.config.hidden_size, 
+                                        self.llm.config.hidden_size)
 
     def postprocess_encoder(self):
         self.encoder.Qformer.cls = None
@@ -332,8 +345,6 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         self,
         graph_batch,
         text_batch,
-        brics_gids=None,
-        entropy_gids=None,
         do_sample=False,
         num_beams=1,
         max_length=None,
@@ -349,8 +360,8 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         eos_token_id=None,
     ):
         # 1. 图→Query
-
-        _, _, query_output = self.encoder(graph_batch, brics_gids=brics_gids if brics_gids is not None else None, entropy_gids=entropy_gids if entropy_gids is not None else None)
+        # brics_gids and entropy_gids are already in graph_batch, no need to pass separately
+        _, _, query_output = self.encoder(graph_batch)
         query_output = self.llm_proj(query_output.last_hidden_state)  # [B,Q,D]
 
         # 2. 原文本 embedding
@@ -435,6 +446,62 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         )
         return outputs
 
+    def _load_checkpoint_before_peft(self, ckpt_path):
+        """
+        Internal method to load checkpoint before PEFT model creation.
+        Only loads encoder and llm_proj weights, skipping LLM weights.
+        
+        Args:
+            ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
+        """
+        logger.info(f"Loading encoder and projector from checkpoint: {ckpt_path}")
+        
+        path = Path(ckpt_path)
+        
+        # Detect file type and load accordingly
+        if path.suffix == '.safetensors':
+            logger.info("Detected safetensors format")
+            state_dict_raw = load_safetensors(ckpt_path)
+        else:
+            logger.info("Detected PyTorch checkpoint format")
+            ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
+            state_dict_raw = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
+        
+        # Determine prefix from keys
+        first_key = list(state_dict_raw.keys())[0]
+        if 'mol_llama.' in first_key:
+            prefix_len = 10
+            prefix = "mol_llama."
+        elif 'model.' in first_key:
+            prefix_len = 6
+            prefix = "model."
+        else:
+            prefix_len = 0
+            prefix = ""
+        
+        # Extract only encoder and llm_proj weights (skip LLM)
+        state_dict = {}
+        for k, v in state_dict_raw.items():
+            if k.startswith(prefix):
+                k_stripped = k[prefix_len:]
+                state_dict[k_stripped] = v
+        
+        logger.info(f"Found {len(state_dict)} encoder/projector parameters to load")
+
+        missing_keys, unexpected_keys = self.load_state_dict(state_dict, strict=False)
+
+        # Filter expected missing keys
+        expected_missing = []
+        for k in missing_keys:
+            if 'position_ids' in k or k.startswith("encoder.graph_encoder.") or k.startswith("encoder.static_q_mask"):
+                expected_missing.append(k)
+            else:
+                assert False, f"Unexpected missing key: {k}"
+        if len(unexpected_keys) > 0:
+            logger.warning(f"Unexpected missing keys: {unexpected_keys}")
+            assert False, f"Unexpected missing keys: {unexpected_keys}"
+        logger.info(f"✅ Successfully loaded encoder and projector weights (LLM will be initialized separately)")
+
     def load_from_ckpt(self, ckpt_path):
         """
         Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors.
@@ -482,22 +549,13 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
             if 'position_ids' in k: continue
             if not (k.startswith("encoder.graph_encoder.") or k.startswith("llm.")) or k.startswith("encoder.static_q_mask"):
                 print(f"❌ Unexpected missing key: {k}")
+            else:
+                print(f"[warning] Missing key: {k}")
             assert k.startswith("encoder.graph_encoder.") or \
                 k.startswith("llm.") or k.startswith("encoder.static_q_mask")
         
         print(f"✅ Successfully loaded weights from {ckpt_path}")
         
-    
-    def load_from_stage1_ckpt_backup(self, ckpt_path):
-        print(f"Loading from stage1 checkpoint: {ckpt_path}")
-
-        ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=True)
-        state_dict = {k[8:]:v for k,v in ckpt['state_dict'].items() if k.startswith("encoder.")}
-        missing_keys, unexpected_keys = self.encoder.load_state_dict(state_dict, strict=False)
-        
-        assert len(unexpected_keys) == 0, f"unexpected keys: {unexpected_keys}"
-        for k in missing_keys:
-            assert k.startswith("graph_encoder.")
     
     def load_from_stage1_ckpt(self, ckpt_path):
         """
@@ -549,314 +607,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         
         print(f"✅ Successfully loaded encoder weights from {ckpt_path}")
 
-
-class MolLLaMA(MolLLaMAPreTrainedModel):
-    def __init__(
-        self,
-        config: MolLLaMAConfig,
-        vocab_size=None,
-        torch_dtype="float16",
-        enable_flash=True,
-        freeze_llm=False,
-    ):
-        super().__init__(config)
-
-        ## Intialize encoder
-        self.encoder = MolLLaMAEncoder(
-            graph_encoder_config = config.graph_encoder_config,
-            blending_module_config = config.blending_module_config,
-            qformer_config = config.qformer_config,
-            enable_blending = True,
-        )
-        self.postprocess_encoder()
-        ## Initialize LLM
-        if torch_dtype == "bfloat16":
-            torch_dtype = torch.bfloat16
-        elif torch_dtype == "float16":
-            torch_dtype = torch.float16
-        elif torch_dtype == "float32":
-            torch_dtype = torch.float32
-
-
-                # -------------------------- train llm ----------------------------------
-        if not freeze_llm:
-            if enable_flash:
-                self.llm = LlamaForCausalLM.from_pretrained(config.llm_config.llm_model, torch_dtype=torch_dtype, 
-                                                                attn_implementation="flash_attention_2")
-
-                logger.info("Using flash attention")
-            else:
-                self.llm = LlamaForCausalLM.from_pretrained(config.llm_config.llm_model, torch_dtype=torch_dtype)
-            self.llm.resize_token_embeddings(vocab_size)
-            
-            peft_config = LoraConfig(task_type=TaskType.CAUSAL_LM,
-                                        inference_mode=False,
-                                        r=config.llm_config.lora_config.r,
-                                        lora_alpha=config.llm_config.lora_config.lora_alpha,
-                                        lora_dropout=config.llm_config.lora_config.lora_dropout,
-                                        target_modules=['k_proj', 'v_proj', 'q_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'])
-            self.peft_config = peft_config
-            self.llm = get_peft_model(self.llm, peft_config)
-            self.llm.print_trainable_parameters()
-
-        # -------------------------- frozen llm ----------------------------------
-
-        else:
-        # 1. 加载基座模型
-            self.llm = LlamaForCausalLM.from_pretrained(
-                config.llm_config.llm_model,
-                # quantization_config=bnb_config,
-                torch_dtype=torch_dtype,
-                attn_implementation="flash_attention_2" if enable_flash else None,
-                # device_map="auto",
-            )
-
-            # 2. 如果你自己扩充过词表，仍然可以保留这一行
-            self.llm.resize_token_embeddings(vocab_size)
-
-            # 3. 冻结 & eval
-            self.llm.eval()                # 关闭 dropout / LayerNorm 统计更新
-            for p in self.llm.parameters():  
-                p.requires_grad = False    # 明确告诉框架“别把梯度算进去”
-            
-            add_ids = None
-            if add_ids is not None:
-                embed = self.llm.get_input_embeddings()
-                unlock_new_token_embeddings(embed, add_ids, init="mean")
-        # -------------------------- train projector ----------------------------------
-        self.llm_proj = nn.Linear(self.encoder.Qformer.config.hidden_size, 
-                                    self.llm.config.hidden_size)
-        # 2. 如果你自己扩充过词表，仍然可以保留这一行
-        self.llm.resize_token_embeddings(vocab_size)
-
-        # self.llm = torch.compile(self.llm)  
-        # 3. 冻结 & eval
-        if freeze_llm:
-            self.llm.eval()                # 关闭 dropout / LayerNorm 统计更新
-            for p in self.llm.parameters():  
-                p.requires_grad = False    # 明确告诉框架“别把梯度算进去”
-
-        # -------------------------- train projector ----------------------------------
-        self.llm_proj = nn.Linear(self.encoder.Qformer.config.hidden_size, 
-                                    self.llm.config.hidden_size)
-
-    def postprocess_encoder(self):
-        self.encoder.Qformer.cls = None
-        self.encoder.Qformer.bert.embeddings.word_embeddings = None
-        self.encoder.Qformer.bert.embeddings.position_embeddings = None
-        for layer in self.encoder.Qformer.bert.encoder.layer:
-            layer.output = None
-            layer.intermediate = None
-
-        self.encoder.graph_proj = None
-        self.encoder.text_proj = None
-        self.encoder.gtm_head = None
-
-    def forward(self, graph_batch, text_batch):
-        _, _, query_output = self.encoder.graph_forward(graph_batch)      
-        query_output = self.llm_proj(query_output.last_hidden_state) #[batch_size,num_query_token,dim]
-
-        inputs_embeds = self.llm.get_input_embeddings()(text_batch.input_ids) # [batch_size, max_len, dim]
-        query_output = query_output.to(inputs_embeds.dtype)
-        # Align dtypes (e.g. Half vs BFloat16) to avoid runtime errors when using quantized models
-        inputs_embeds[text_batch.mol_token_flag] = query_output.flatten(0, 1) # [batch_size, max_len, dim]
-        
-        outputs = self.llm(
-            inputs_embeds=inputs_embeds,
-            attention_mask=text_batch.attention_mask,
-            return_dict=True,
-            labels=text_batch.labels,
-            use_cache=False,
-        )
-        
-        return outputs
-
-    @torch.no_grad()
-    def generate(
-        self,
-        graph_batch,
-        text_batch,
-        do_sample=False,
-        num_beams=1,
-        max_length=None,
-        min_length=1,
-        max_new_tokens=1024,
-        min_new_tokens=None,
-        repetition_penalty=1.0,
-        length_penalty=1.0,
-        num_return_sequences=1,
-        top_p=None,
-        temperature=None,
-        pad_token_id=None,
-        eos_token_id=None,
-    ):
-        _, _, query_output = self.encoder.graph_forward(graph_batch)
-        query_output = self.llm_proj(query_output.last_hidden_state) #[batch_size,num_query_token,dim]
-
-        inputs_embeds = self.llm.get_input_embeddings()(text_batch.input_ids) # [batch_size, max_len, dim]
-        
-        inputs_embeds[text_batch.mol_token_flag] = \
-            query_output.flatten(0, 1).to(inputs_embeds.dtype) # [batch_size, max_len, dim]
-
-        outputs = self.llm.generate(
-            inputs_embeds=inputs_embeds,
-            attention_mask=text_batch.attention_mask,
-            do_sample=do_sample,
-            num_beams=num_beams,
-            max_length=max_length,
-            min_length=min_length,
-            max_new_tokens=max_new_tokens,
-            min_new_tokens=min_new_tokens,
-            pad_token_id=pad_token_id,
-            eos_token_id=eos_token_id,
-            repetition_penalty=repetition_penalty,
-            length_penalty=length_penalty,
-            num_return_sequences=num_return_sequences,
-            temperature=temperature,
-            top_p=top_p,
-        )
-
-        return outputs
-
-    @torch.no_grad()
-    def generate_with_smiles(
-        self,
-        smiles_list,
-        text_batch,
-        do_sample=False,
-        num_beams=1,
-        max_length=None,
-        min_length=1,
-        max_new_tokens=1024,
-        min_new_tokens=None,
-        repetition_penalty=1.0,
-        length_penalty=1.0,
-        num_return_sequences=1,
-        top_p=None,
-        temperature=None,
-        pad_token_id=None,
-        eos_token_id=None,
-    ):
-        graph_batch = get_mol_graphs(smiles_list, self.encoder.unimol_dictionary, self.device)
-        outputs = self.generate(
-            graph_batch=graph_batch,
-            text_batch=text_batch,
-            do_sample=do_sample,
-            num_beams=num_beams,
-            max_length=max_length,
-            min_length=min_length,
-            max_new_tokens=max_new_tokens,
-            min_new_tokens=min_new_tokens,
-            repetition_penalty=repetition_penalty,
-            length_penalty=length_penalty,
-            num_return_sequences=num_return_sequences,
-            top_p=top_p,
-            temperature=temperature,
-            pad_token_id=pad_token_id,
-            eos_token_id=eos_token_id
-        )
-        return outputs
-
-    def load_from_ckpt(self, ckpt_path):
-        """
-        Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors.
-        
-        Args:
-            ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
-        """
-        print(f"Loading from checkpoint: {ckpt_path}")
-        
-        path = Path(ckpt_path)
-        
-        # Detect file type and load accordingly
-        if path.suffix == '.safetensors':
-            # Load HuggingFace safetensor format
-            print("Detected safetensors format")
-            state_dict_raw = load_safetensors(ckpt_path)
-        else:
-            # Load PyTorch checkpoint format
-            print("Detected PyTorch checkpoint format")
-            ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
-            # Some checkpoints save state_dict directly, others wrap it
-            state_dict_raw = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
-        
-        # Extract relevant state dict with prefix removal
-        state_dict = {k[10:]:v for k,v in state_dict_raw.items() if k.startswith("mol_llama.")}
-        
-        print(f"Found {len(state_dict)} parameters to load")
-        
-        missing_keys, unexpected_keys = self.load_state_dict(state_dict, strict=False)
-        assert len(unexpected_keys) == 0, f"unexpected keys: {unexpected_keys}"
-        for k in missing_keys:
-            if 'position_ids' in k: continue
-            assert k.startswith("encoder.graph_encoder.") or \
-                    k.startswith("llm.")
-        
-        print(f"✅ Successfully loaded weights from {ckpt_path}")
-        
-    
-    def load_from_stage1_ckpt_backup(self, ckpt_path):
-        print(f"Loading from stage1 checkpoint: {ckpt_path}")
-
-        ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=True)
-        state_dict = {k[8:]:v for k,v in ckpt['state_dict'].items() if k.startswith("encoder.")}
-        missing_keys, unexpected_keys = self.encoder.load_state_dict(state_dict, strict=False)
-        
-        assert len(unexpected_keys) == 0, f"unexpected keys: {unexpected_keys}"
-        for k in missing_keys:
-            assert k.startswith("graph_encoder.")
-    
-    def load_from_stage1_ckpt(self, ckpt_path):
-        """
-        Load stage1 checkpoint from either PyTorch Lightning checkpoint or HuggingFace safetensors.
-        
-        Args:
-            ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
-        """
-        print(f"Loading from stage1 checkpoint: {ckpt_path}")
-        
-        path = Path(ckpt_path)
-        
-        # Detect file type and load accordingly
-        if path.suffix == '.safetensors':
-            # Load HuggingFace safetensor format
-            print("Detected safetensors format")
-            state_dict_raw = load_safetensors(ckpt_path)
-        else:
-            # Load PyTorch Lightning checkpoint format
-            print("Detected PyTorch checkpoint format")
-            ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
-            # Some checkpoints save state_dict directly, others wrap it
-            state_dict_raw = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
-        
-        # Extract encoder parameters
-        # Handle different possible prefixes: "encoder.", "model.encoder.", etc.
-        state_dict = {}
-        for k, v in state_dict_raw.items():
-            if k.startswith("encoder."):
-                # Remove "encoder." prefix (8 chars)
-                state_dict[k[8:]] = v
-            elif k.startswith("model.encoder."):
-                # Remove "model.encoder." prefix (14 chars)
-                state_dict[k[14:]] = v
-        
-        if not state_dict:
-            print(f"Warning: No encoder weights found. Available keys: {list(state_dict_raw.keys())[:5]}...")
-        
-        print(f"Found {len(state_dict)} encoder parameters to load")
-        
-        # Load state dict into encoder
-        missing_keys, unexpected_keys = self.encoder.load_state_dict(state_dict, strict=False)
-        
-        assert len(unexpected_keys) == 0, f"Unexpected keys found: {unexpected_keys}"
-        
-        # Validate missing keys - only graph_encoder keys are allowed to be missing
-        for k in missing_keys:
-            assert k.startswith("graph_encoder."), f"Missing unexpected key: {k}"
-        
-        print(f"✅ Successfully loaded encoder weights from {ckpt_path}")
-
-        
+ 
 def gen_3d_conformation_from_rdkit(smiles):
     try:
         mol = Chem.MolFromSmiles(smiles)

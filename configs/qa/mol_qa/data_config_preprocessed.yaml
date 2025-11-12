@@ -21,6 +21,10 @@ mol_type: SMILES,mol
 use_streaming: false  # Set to true for very large datasets
 cache_dir: null       # Optional: specify custom cache directory
 
+# Evaluation settings
+# max_eval_samples: null  # Limit evaluation to N samples for faster training (null = use all)
+# random_seed: 42        # Random seed for sampling eval samples
+
 # Legacy fields (for fallback to original data loading if needed)
 root: data/moleculeqa/
 num_workers: 0

@@ -21,7 +21,7 @@ num_heads: 8
 
 # LLM Configuration
 llm_backbone: null  # Optional: override default LLM model (e.g., "meta-llama/Meta-Llama-3-8B")
-freeze_llm: True  # For MoleculeQA finetuning, we typically don't freeze LLM
+freeze_llm: False  # For MoleculeQA finetuning, we typically don't freeze LLM
 enable_lora_qformer: False
 
 # Training-specific model settings

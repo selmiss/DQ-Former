@@ -24,7 +24,14 @@ export MASTER_PORT=29500  # Master port for distributed training
 # Set to your GPU architecture or leave commented to auto-detect
 export TORCH_CUDA_ARCH_LIST="8.0"
 
-# Get deepspeed stage from argument or default to 2
+# Get deepspeed stage from argument or default to 3
+# Note: 
+#   - When num_train_epochs=0: DeepSpeed is AUTOMATICALLY DISABLED (stage ignored)
+#   - ZeRO Stage 3: For training WITH evaluation (eval_strategy="steps"/"epoch")
+#   - ZeRO Stage 2: For training WITHOUT evaluation (eval_strategy="no")
+# Usage: ./mol_qa.sh     (default - auto-detects based on num_train_epochs)
+#        ./mol_qa.sh 3   (training with eval)
+#        ./mol_qa.sh 2   (training without eval)
 DEEPSPEED_STAGE=${1:-2}
 
 
@@ -42,7 +49,8 @@ deepspeed --master_port ${MASTER_PORT} --include localhost:${GPUs} \
     ${BASE_DIR}/runner/qa_finetuning.py \
     --model_config_path ${BASE_DIR}/configs/qa/mol_qa/model_config.yaml \
     --training_config_path ${BASE_DIR}/configs/qa/mol_qa/training_config.yaml \
-    --data_config_path ${BASE_DIR}/configs/qa/mol_qa/data_config_preprocessed.yaml
+    --data_config_path ${BASE_DIR}/configs/qa/mol_qa/data_config_preprocessed.yaml \
+    --deepspeed_stage ${DEEPSPEED_STAGE}
 
 echo "=========================================="
 echo "Training completed!"

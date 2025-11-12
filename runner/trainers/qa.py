@@ -18,7 +18,7 @@ from peft import LoraConfig, get_peft_model, TaskType
 from torch_geometric.data import Batch
 from safetensors.torch import load_file as load_safetensors
 
-from models.mol_llama import MolLLaMA, DQMolLLaMA
+from models.mol_llama import DQMolLLaMA
 
 from nltk.translate.bleu_score import corpus_bleu
 from nltk.translate.meteor_score import meteor_score
@@ -32,7 +32,6 @@ class MoleculeQATrainer(Trainer):
     """Trainer for molecule QA tasks (multiple choice questions)."""
     def __init__(self, vocab_size, model_config, train_config, tokenizer, use_dq_encoder=False, torch_dtype=None, **kwargs):
         self.train_config = train_config
-        self.tokenizer = tokenizer
         
         if torch_dtype is None:
             if train_config.precision == 'bf16-mixed':
@@ -85,7 +84,8 @@ class MoleculeQATrainer(Trainer):
                 logger.info("Applied LoRA to LLM baseline")
             
             self.is_llm_baseline = True
-        elif use_dq_encoder:
+        else:
+            # Use DQ encoder (default molecular encoder)
             self.is_llm_baseline = False
             if hasattr(train_config, 'llm_model_path'):
                 model_config.llm_config.llm_model = train_config.llm_model_path
@@ -98,24 +98,19 @@ class MoleculeQATrainer(Trainer):
                 brics_gids_enable = train_config.brics_gids_enable,
                 entropy_gids_enable = train_config.entropy_gids_enable,
                 enable_blending = getattr(train_config, 'enable_blending', False),
+                load_ckpt_before_peft = getattr(train_config, 'load_ckpt_before_peft', False),
+                ckpt_path = getattr(train_config, 'ckpt_path', None),
             )
-        else:
-            self.is_llm_baseline = False
-            model_config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
-            if hasattr(train_config, 'llm_model_path'):
-                model_config.llm_config.llm_model = train_config.llm_model_path
-            model = MolLLaMA(
-                config=model_config,
-                vocab_size=vocab_size,
-                torch_dtype = torch_dtype,
-                enable_flash = train_config.enable_flash,
-                freeze_llm = getattr(train_config, 'freeze_llm', False),
-            ).from_pretrained(train_config.ckpt_path)
 
         self.test_step_outputs = []
         
         # Initialize parent Trainer
         super().__init__(model=model, tokenizer=tokenizer, **kwargs)
+    
+    @property
+    def tokenizer(self):
+        """Access tokenizer via processing_class to avoid deprecation warning."""
+        return self.processing_class
 
     def _get_eos_token_ids(self):
         ids = []
@@ -223,7 +218,6 @@ class MoleculeQATrainer(Trainer):
         """
         Perform an evaluation/prediction step.
         """
-        has_labels = "labels" in inputs or "text_batch" in inputs
         inputs = self._prepare_inputs(inputs)
         
         graph_batch = inputs.get('graph_batch', {})
@@ -231,6 +225,9 @@ class MoleculeQATrainer(Trainer):
         brics_gids = inputs.get('brics_gids', None)
         entropy_gids = inputs.get('entropy_gids', None)
         other_infos = inputs.get('other_infos', {})
+        
+        # Check if text_batch has labels attribute
+        has_labels = hasattr(text_batch, 'labels') or ('labels' in text_batch if isinstance(text_batch, dict) else False)
         
         with torch.no_grad():
             if self.is_llm_baseline:
@@ -254,8 +251,6 @@ class MoleculeQATrainer(Trainer):
                     text_batch,
                     pad_token_id = self.tokenizer.pad_token_id,
                     eos_token_id = [self.tokenizer.eos_token_id],
-                    brics_gids = brics_gids,
-                    entropy_gids = entropy_gids,
                 )
             
             generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
@@ -275,6 +270,17 @@ class MoleculeQATrainer(Trainer):
                 for k, v in graph_batch['unimol'].items():
                     new_graph_batch['unimol'][k] = v[no_format_indices]
                 new_graph_batch['moleculestm'] = Batch.from_data_list(graph_batch['moleculestm'].index_select(no_format_indices))
+                
+                # Copy brics_gids and entropy_gids if they exist
+                if 'brics_gids' in graph_batch and graph_batch['brics_gids'] is not None:
+                    new_graph_batch['brics_gids'] = [graph_batch['brics_gids'][i] for i in no_format_indices]
+                else:
+                    new_graph_batch['brics_gids'] = None
+                    
+                if 'entropy_gids' in graph_batch and graph_batch['entropy_gids'] is not None:
+                    new_graph_batch['entropy_gids'] = [graph_batch['entropy_gids'][i] for i in no_format_indices]
+                else:
+                    new_graph_batch['entropy_gids'] = None
 
                 new_text_batch = self.tokenizer(
                     new_texts,
@@ -292,8 +298,6 @@ class MoleculeQATrainer(Trainer):
                     new_text_batch,
                     pad_token_id = self.tokenizer.pad_token_id,
                     eos_token_id = [self.tokenizer.eos_token_id],
-                    brics_gids = brics_gids,
-                    entropy_gids = entropy_gids,
                 )
                 new_generated_texts = self.tokenizer.batch_decode(new_responses, skip_special_tokens=True)
 
@@ -308,38 +312,62 @@ class MoleculeQATrainer(Trainer):
                     'task': task
                 })
         
+        # Compute loss only if we have valid labels (not all -100)
+        # Note: In inference mode (do_infer=True), labels are all -100, so loss will be NaN
         loss = None
-        if not prediction_loss_only and has_labels:
-            with torch.no_grad():
-                loss = self.compute_loss(model, inputs, return_outputs=False)
+        if has_labels:
+            try:
+                with torch.no_grad():
+                    # Check if labels contain any valid (non -100) values
+                    if hasattr(text_batch, 'labels'):
+                        valid_labels = (text_batch.labels != -100).any()
+                        if valid_labels:
+                            loss = self.compute_loss(model, inputs, return_outputs=False)
+                    else:
+                        loss = self.compute_loss(model, inputs, return_outputs=False)
+            except Exception as e:
+                logger.warning(f"Could not compute loss during evaluation: {e}")
+                loss = None
         
         return (loss, None, None)
     
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
         """
         Override evaluate to compute custom metrics after prediction loop.
+        Note: eval_loss will be None/NaN for inference-mode evaluation (do_infer=True)
+        because evaluation datasets don't include labels. Use accuracy instead.
         """
         self.test_step_outputs = []  # Reset outputs
         
         # Run standard evaluation
         output = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
         
-        # Gather outputs from all processes
+        # Log a helpful message if loss is NaN
+        if self.args.local_rank in [-1, 0] and (f"{metric_key_prefix}_loss" not in output or output.get(f"{metric_key_prefix}_loss") is None or (isinstance(output.get(f"{metric_key_prefix}_loss"), float) and output[f"{metric_key_prefix}_loss"] != output[f"{metric_key_prefix}_loss"])):  # NaN check
+            logger.info(f"ℹ️  {metric_key_prefix}_loss is None/NaN (expected for inference-mode evaluation). Using accuracy metric instead.")
+        
+        # Compute metrics on all ranks from their local outputs
+        corrects, results = self.compute_metrics_qa(self.test_step_outputs)
+        
+        # Add accuracy to output metrics (all ranks)
+        if 'overall' in corrects:
+            output[f"{metric_key_prefix}_accuracy"] = corrects['overall']['accuracy']
+        else:
+            # If no outputs collected (can happen on some ranks), set to 0
+            output[f"{metric_key_prefix}_accuracy"] = 0.0
+        
+        # Save results only on main process
         if self.args.local_rank in [-1, 0]:
-            corrects, results = self.compute_metrics_qa(self.test_step_outputs)
-            
-            # Save results
             output_dir = self.args.output_dir
             os.makedirs(output_dir, exist_ok=True)
             
-            with open(os.path.join(output_dir, f"{metric_key_prefix}_results.json"), "w") as f:
-                json.dump(results, f, indent=4)
-            with open(os.path.join(output_dir, f"{metric_key_prefix}_metrics.json"), "w") as f:
-                json.dump(corrects, f, indent=4)
+            # Include global step in filename to avoid overwriting
+            step_suffix = f"_step{self.state.global_step}" if self.state.global_step > 0 else ""
             
-            # Add accuracy to output metrics
-            if 'overall' in corrects:
-                output[f"{metric_key_prefix}_accuracy"] = corrects['overall']['accuracy']
+            with open(os.path.join(output_dir, f"{metric_key_prefix}_results{step_suffix}.json"), "w") as f:
+                json.dump(results, f, indent=4)
+            with open(os.path.join(output_dir, f"{metric_key_prefix}_metrics{step_suffix}.json"), "w") as f:
+                json.dump(corrects, f, indent=4)
         
         return output
     
@@ -372,6 +400,10 @@ class MoleculeQATrainer(Trainer):
         """Compute metrics for QA task (multiple choice)."""
         results = defaultdict(list)
         corrects = {}
+
+        # Handle empty outputs (can happen on some ranks in distributed training)
+        if not outputs:
+            return corrects, results
 
         for output in outputs:
             task = output['task']
@@ -410,10 +442,11 @@ class MoleculeQATrainer(Trainer):
             corrects[task]['accuracy'] = accuracy
 
         # Calculate overall accuracy
-        overall_correct = sum([corrects[task]['correct'] for task in tasks])
-        overall_total = sum([corrects[task]['total'] for task in tasks])
-        overall_accuracy = overall_correct / overall_total * 100
-        corrects['overall'] = {'correct': overall_correct, 'total': overall_total, 'accuracy': overall_accuracy}
+        if tasks:
+            overall_correct = sum([corrects[task]['correct'] for task in tasks])
+            overall_total = sum([corrects[task]['total'] for task in tasks])
+            overall_accuracy = overall_correct / overall_total * 100
+            corrects['overall'] = {'correct': overall_correct, 'total': overall_total, 'accuracy': overall_accuracy}
 
         return corrects, results
 
@@ -422,7 +455,6 @@ class MoleculeGENQATrainer(Trainer):
     """Trainer for molecule generation/captioning tasks."""
     def __init__(self, vocab_size, model_config, train_config, tokenizer, use_dq_encoder=False, torch_dtype=None, **kwargs):
         self.train_config = train_config
-        self.tokenizer = tokenizer
         
         if torch_dtype is None:
             if train_config.precision == 'bf16-mixed':
@@ -468,7 +500,8 @@ class MoleculeGENQATrainer(Trainer):
                 model = get_peft_model(model, peft_config)
                 logger.info("Applied LoRA to LLM baseline")
             self.is_llm_baseline = True
-        elif use_dq_encoder:
+        else:
+            # Use DQ encoder (default molecular encoder)
             self.is_llm_baseline = False
             if hasattr(train_config, 'llm_model_path'):
                 model_config.llm_config.llm_model = train_config.llm_model_path
@@ -481,26 +514,19 @@ class MoleculeGENQATrainer(Trainer):
                 brics_gids_enable = train_config.brics_gids_enable,
                 entropy_gids_enable = train_config.entropy_gids_enable,
                 enable_blending = getattr(train_config, 'enable_blending', False),
-            )
-        else:
-            self.is_llm_baseline = False
-            if hasattr(train_config, 'llm_model_path'):
-                model_config.llm_config.llm_model = train_config.llm_model_path
-            # Align encoder types with MoleculeQATrainer defaults
-            if hasattr(model_config, 'graph_encoder_config'):
-                model_config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
-            model = MolLLaMA(
-                config=model_config,
-                vocab_size=vocab_size,
-                torch_dtype = torch_dtype,
-                enable_flash = train_config.enable_flash,
-                freeze_llm = getattr(train_config, 'freeze_llm', False),
+                load_ckpt_before_peft = getattr(train_config, 'load_ckpt_before_peft', False),
+                ckpt_path = getattr(train_config, 'ckpt_path', None),
             )
 
         self.test_step_outputs = []
         
         # Initialize parent Trainer
         super().__init__(model=model, tokenizer=tokenizer, **kwargs)
+    
+    @property
+    def tokenizer(self):
+        """Access tokenizer via processing_class to avoid deprecation warning."""
+        return self.processing_class
 
     def load_from_ckpt(self, ckpt_path):
         """
@@ -573,7 +599,6 @@ class MoleculeGENQATrainer(Trainer):
         ignore_keys: Optional[List[str]] = None,
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         """Perform an evaluation/prediction step for generation."""
-        has_labels = "labels" in inputs or "text_batch" in inputs
         inputs = self._prepare_inputs(inputs)
         
         graph_batch = inputs.get('graph_batch', {})
@@ -581,6 +606,9 @@ class MoleculeGENQATrainer(Trainer):
         brics_gids = inputs.get('brics_gids', None)
         entropy_gids = inputs.get('entropy_gids', None)
         other_infos = inputs.get('other_infos', {})
+        
+        # Check if text_batch has labels attribute
+        has_labels = hasattr(text_batch, 'labels') or ('labels' in text_batch if isinstance(text_batch, dict) else False)
         
         with torch.no_grad():
             if getattr(self, 'is_llm_baseline', False):
@@ -602,8 +630,6 @@ class MoleculeGENQATrainer(Trainer):
                     text_batch,
                     pad_token_id=self.tokenizer.pad_token_id,
                     eos_token_id=[self.tokenizer.eos_token_id],
-                    brics_gids=brics_gids,
-                    entropy_gids=entropy_gids,
                 )
             generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
 
@@ -613,31 +639,52 @@ class MoleculeGENQATrainer(Trainer):
                     'ground_truth': gt_text,
                 })
         
+        # Compute loss only if we have valid labels (not all -100)
+        # Note: In inference mode (do_infer=True), labels are all -100, so loss will be NaN
         loss = None
-        if not prediction_loss_only and has_labels:
-            with torch.no_grad():
-                loss = self.compute_loss(model, inputs, return_outputs=False)
+        if has_labels:
+            try:
+                with torch.no_grad():
+                    # Check if labels contain any valid (non -100) values
+                    if hasattr(text_batch, 'labels'):
+                        valid_labels = (text_batch.labels != -100).any()
+                        if valid_labels:
+                            loss = self.compute_loss(model, inputs, return_outputs=False)
+                    else:
+                        loss = self.compute_loss(model, inputs, return_outputs=False)
+            except Exception as e:
+                logger.warning(f"Could not compute loss during evaluation: {e}")
+                loss = None
         
         return (loss, None, None)
 
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
-        """Override evaluate to compute custom metrics."""
+        """
+        Override evaluate to compute custom metrics.
+        Note: eval_loss is automatically computed by HuggingFace Trainer.
+        """
         self.test_step_outputs = []
         output = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
         
+        # Compute metrics on all ranks from their local outputs
+        metrics, per_sample = self.compute_metrics_gen(self.test_step_outputs)
+        
+        # Add metrics to output (all ranks need these for best model selection)
+        for k, v in metrics.items():
+            output[f"{metric_key_prefix}_{k}"] = v
+        
+        # Save results only on main process
         if self.args.local_rank in [-1, 0]:
-            metrics, per_sample = self.compute_metrics_gen(self.test_step_outputs)
             output_dir = self.args.output_dir
             os.makedirs(output_dir, exist_ok=True)
             
-            with open(os.path.join(output_dir, f"{metric_key_prefix}_caption_results.json"), "w") as f:
-                json.dump(per_sample, f, indent=4)
-            with open(os.path.join(output_dir, f"{metric_key_prefix}_caption_metrics.json"), "w") as f:
-                json.dump(metrics, f, indent=4)
+            # Include global step in filename to avoid overwriting
+            step_suffix = f"_step{self.state.global_step}" if self.state.global_step > 0 else ""
             
-            # Add metrics to output
-            for k, v in metrics.items():
-                output[f"{metric_key_prefix}_{k}"] = v
+            with open(os.path.join(output_dir, f"{metric_key_prefix}_caption_results{step_suffix}.json"), "w") as f:
+                json.dump(per_sample, f, indent=4)
+            with open(os.path.join(output_dir, f"{metric_key_prefix}_caption_metrics{step_suffix}.json"), "w") as f:
+                json.dump(metrics, f, indent=4)
         
         return output
 
@@ -661,6 +708,17 @@ class MoleculeGENQATrainer(Trainer):
 
     def compute_metrics_gen(self, outputs):
         """Compute metrics for generation/captioning task."""
+        # Handle empty outputs (can happen on some ranks in distributed training)
+        if not outputs:
+            return {
+                'bleu2': 0.0,
+                'bleu4': 0.0,
+                'rouge1': 0.0,
+                'rouge2': 0.0,
+                'rougeL': 0.0,
+                'meteor': 0.0,
+            }, []
+        
         # Prepare pairs
         pairs = [(o['ground_truth'], o['prediction']) for o in outputs]
         per_sample = [{'ground_truth': gt, 'prediction': pred} for gt, pred in pairs]
@@ -736,7 +794,6 @@ class MoleculePropertyQATrainer(Trainer):
     """Trainer for molecule property prediction/regression tasks."""
     def __init__(self, vocab_size, model_config, train_config, tokenizer, use_dq_encoder=False, torch_dtype=None, **kwargs):
         self.train_config = train_config
-        self.tokenizer = tokenizer
         
         if torch_dtype is None:
             if train_config.precision == 'bf16-mixed':
@@ -782,7 +839,8 @@ class MoleculePropertyQATrainer(Trainer):
                 model = get_peft_model(model, peft_config)
                 logger.info("Applied LoRA to LLM baseline")
             self.is_llm_baseline = True
-        elif use_dq_encoder:
+        else:
+            # Use DQ encoder (default molecular encoder)
             self.is_llm_baseline = False
             if hasattr(train_config, 'llm_model_path'):
                 model_config.llm_config.llm_model = train_config.llm_model_path
@@ -795,25 +853,19 @@ class MoleculePropertyQATrainer(Trainer):
                 brics_gids_enable = train_config.brics_gids_enable,
                 entropy_gids_enable = train_config.entropy_gids_enable,
                 enable_blending = getattr(train_config, 'enable_blending', False),
-            )
-        else:
-            self.is_llm_baseline = False
-            if hasattr(train_config, 'llm_model_path'):
-                model_config.llm_config.llm_model = train_config.llm_model_path
-            if hasattr(model_config, 'graph_encoder_config'):
-                model_config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
-            model = MolLLaMA(
-                config=model_config,
-                vocab_size=vocab_size,
-                torch_dtype = torch_dtype,
-                enable_flash = train_config.enable_flash,
-                freeze_llm = getattr(train_config, 'freeze_llm', False),
+                load_ckpt_before_peft = getattr(train_config, 'load_ckpt_before_peft', False),
+                ckpt_path = getattr(train_config, 'ckpt_path', None),
             )
 
         self.test_step_outputs = []
         
         # Initialize parent Trainer
         super().__init__(model=model, tokenizer=tokenizer, **kwargs)
+    
+    @property
+    def tokenizer(self):
+        """Access tokenizer via processing_class to avoid deprecation warning."""
+        return self.processing_class
 
     def load_from_ckpt(self, ckpt_path):
         """
@@ -886,7 +938,6 @@ class MoleculePropertyQATrainer(Trainer):
         ignore_keys: Optional[List[str]] = None,
     ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
         """Perform an evaluation/prediction step for property prediction."""
-        has_labels = "labels" in inputs or "text_batch" in inputs
         inputs = self._prepare_inputs(inputs)
         
         graph_batch = inputs.get('graph_batch', {})
@@ -894,6 +945,9 @@ class MoleculePropertyQATrainer(Trainer):
         brics_gids = inputs.get('brics_gids', None)
         entropy_gids = inputs.get('entropy_gids', None)
         other_infos = inputs.get('other_infos', {})
+        
+        # Check if text_batch has labels attribute
+        has_labels = hasattr(text_batch, 'labels') or ('labels' in text_batch if isinstance(text_batch, dict) else False)
         
         with torch.no_grad():
             if getattr(self, 'is_llm_baseline', False):
@@ -915,8 +969,6 @@ class MoleculePropertyQATrainer(Trainer):
                     text_batch,
                     pad_token_id=self.tokenizer.pad_token_id,
                     eos_token_id=[self.tokenizer.eos_token_id],
-                    brics_gids=brics_gids,
-                    entropy_gids=entropy_gids,
                 )
             generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
 
@@ -926,31 +978,55 @@ class MoleculePropertyQATrainer(Trainer):
                     'ground_truth': gt_text,
                 })
         
+        # Compute loss only if we have valid labels (not all -100)
+        # Note: In inference mode (do_infer=True), labels are all -100, so loss will be NaN
         loss = None
-        if not prediction_loss_only and has_labels:
-            with torch.no_grad():
-                loss = self.compute_loss(model, inputs, return_outputs=False)
+        if has_labels:
+            try:
+                with torch.no_grad():
+                    # Check if labels contain any valid (non -100) values
+                    if hasattr(text_batch, 'labels'):
+                        valid_labels = (text_batch.labels != -100).any()
+                        if valid_labels:
+                            loss = self.compute_loss(model, inputs, return_outputs=False)
+                    else:
+                        loss = self.compute_loss(model, inputs, return_outputs=False)
+            except Exception as e:
+                logger.warning(f"Could not compute loss during evaluation: {e}")
+                loss = None
         
         return (loss, None, None)
 
     def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
-        """Override evaluate to compute custom metrics."""
+        """
+        Override evaluate to compute custom metrics.
+        Note: eval_loss is automatically computed by HuggingFace Trainer.
+        """
         self.test_step_outputs = []
         output = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
         
+        # Compute metrics on all ranks from their local outputs
+        metrics, per_sample = self.compute_metrics_regression(self.test_step_outputs)
+        
+        # Add MAE to output metrics (all ranks need this for best model selection)
+        if 'MAE' in metrics:
+            output[f"{metric_key_prefix}_mae"] = metrics['MAE']
+        else:
+            # If no outputs collected, set to a large value
+            output[f"{metric_key_prefix}_mae"] = float('inf')
+        
+        # Save results only on main process
         if self.args.local_rank in [-1, 0]:
-            metrics, per_sample = self.compute_metrics_regression(self.test_step_outputs)
             output_dir = self.args.output_dir
             os.makedirs(output_dir, exist_ok=True)
             
-            with open(os.path.join(output_dir, f"{metric_key_prefix}_regression_results.json"), "w") as f:
-                json.dump(per_sample, f, indent=4)
-            with open(os.path.join(output_dir, f"{metric_key_prefix}_regression_metrics.json"), "w") as f:
-                json.dump(metrics, f, indent=4)
+            # Include global step in filename to avoid overwriting
+            step_suffix = f"_step{self.state.global_step}" if self.state.global_step > 0 else ""
             
-            # Add MAE to output metrics
-            if 'MAE' in metrics:
-                output[f"{metric_key_prefix}_mae"] = metrics['MAE']
+            with open(os.path.join(output_dir, f"{metric_key_prefix}_regression_results{step_suffix}.json"), "w") as f:
+                json.dump(per_sample, f, indent=4)
+            with open(os.path.join(output_dir, f"{metric_key_prefix}_regression_metrics{step_suffix}.json"), "w") as f:
+                json.dump(metrics, f, indent=4)
         
         return output
 
@@ -974,6 +1050,14 @@ class MoleculePropertyQATrainer(Trainer):
 
     def compute_metrics_regression(self, outputs):
         """Compute metrics for regression/property prediction task."""
+        # Handle empty outputs (can happen on some ranks in distributed training)
+        if not outputs:
+            return {
+                'MAE': float('inf'),
+                'valid_count': 0,
+                'total_count': 0,
+            }, []
+        
         # Extract last numeric value from prediction text and ground-truth text, compute MAE
         def _extract_last_number(text: Any):
             try:

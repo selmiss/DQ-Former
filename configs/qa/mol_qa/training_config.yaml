@@ -1,7 +1,7 @@
 # Training Configuration for MoleculeQA Finetuning (HuggingFace TrainingArguments compatible)
 
 # Experiment naming
-run_name: molqa_dqw2d
+run_name: molqa_v2_debug
 
 # Training hyperparameters
 num_train_epochs: 10
@@ -20,11 +20,12 @@ bf16: True
 fp16: False
 
 # Checkpointing and evaluation
-save_strategy: "epoch"
-save_steps: 10  # save every N epochs
+save_strategy: "epoch"  # No saving during zero-shot evaluation
+save_steps: 2
 save_total_limit: 3
-eval_strategy: "epoch"  # Evaluate every epoch for MoleculeQA
-load_best_model_at_end: True
+eval_strategy: "epoch"  # IMPORTANT: Set to "no" for ZeRO Stage 2 (eval during training requires Stage 3)
+eval_steps: 1
+# load_best_model_at_end: False
 metric_for_best_model: "eval_accuracy"  # For QA tasks; use "eval_mae" for property tasks
 greater_is_better: True  # True for accuracy, False for MAE
 
@@ -48,6 +49,27 @@ ddp_find_unused_parameters: False
 seed: 0
 data_seed: 0
 
-# Note: deepspeed config path is set automatically by the training script
-# based on deepspeed_stage value (2 or 3) in the script itself
+# Checkpoint loading
+# Set to True for zero-shot evaluation without DeepSpeed (num_train_epochs=0)
+# Set to False when using ZeRO Stage 3 with training (parameters are partitioned)
+load_ckpt_before_peft: True  # Works with num_train_epochs=0 (no DeepSpeed)
+
+# DeepSpeed Configuration:
+# ========================
+# Automatic Disabling (num_train_epochs=0):
+#   - When num_train_epochs=0, DeepSpeed is AUTOMATICALLY DISABLED
+#   - This enables pure evaluation/inference without distributed training overhead
+#   - Works with load_ckpt_before_peft=True (set above)
+#   - Command: bash scripts/qa/mol_qa.sh (any stage is ignored)
+#
+# ZeRO Stage 3 (For training with evaluation):
+#   - Use when: num_train_epochs > 0 AND eval_strategy="steps"/"epoch"
+#   - Supports periodic evaluation during training
+#   - Requires: load_ckpt_before_peft=False
+#   - Command: bash scripts/qa/mol_qa.sh 3
+#
+# ZeRO Stage 2 (For training without evaluation):
+#   - Use when: num_train_epochs > 0 AND eval_strategy="no"
+#   - Faster training, no evaluation support
+#   - Command: bash scripts/qa/mol_qa.sh 2
 

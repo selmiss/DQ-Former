@@ -86,6 +86,10 @@ class DataTrainingArguments:
         default=42,
         metadata={"help": "Random seed for data splitting (default: 42)."}
     )
+    max_eval_samples: Optional[int] = field(
+        default=None,
+        metadata={"help": "Maximum number of evaluation samples to use (for faster evaluation during training). None means use all samples."}
+    )
 
 
 @dataclass
@@ -181,6 +185,10 @@ class ModelArguments:
     zero_shot: bool = field(
         default=False,
         metadata={"help": "Whether to perform zero-shot evaluation without loading checkpoint weights."}
+    )
+    load_ckpt_before_peft: bool = field(
+        default=False,
+        metadata={"help": "Whether to load checkpoint before creating PEFT model (in mol_llama.py) instead of after trainer creation."}
     )
 
 

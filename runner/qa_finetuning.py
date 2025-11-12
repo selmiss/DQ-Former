@@ -13,9 +13,11 @@ import warnings
 import argparse
 import yaml
 import torch
+import random
 from easydict import EasyDict as edict
 from typing import Dict, Optional
 from collections import defaultdict
+from torch.utils.data import Subset
 
 from transformers import (
     Trainer,
@@ -218,8 +220,25 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         test_dataset = datasets['test']
     
     logger.info(f"Train size: {len(train_dataset)}")
-    logger.info(f"Val size: {len(val_dataset)}")
-    logger.info(f"Test size: {len(test_dataset)}")
+    logger.info(f"Val size (full): {len(val_dataset)}")
+    logger.info(f"Test size (full): {len(test_dataset)}")
+    
+    # Apply max_eval_samples limit if specified
+    max_eval_samples = getattr(data_config, 'max_eval_samples', None)
+    if max_eval_samples is not None and max_eval_samples > 0:
+        random.seed(getattr(data_config, 'random_seed', 42))
+        
+        if len(val_dataset) > max_eval_samples:
+            logger.info(f"⚠️  Limiting validation set to {max_eval_samples} samples (from {len(val_dataset)}) for faster evaluation")
+            indices = random.sample(range(len(val_dataset)), max_eval_samples)
+            val_dataset = Subset(val_dataset, indices)
+            logger.info(f"✅ Val size (limited): {len(val_dataset)}")
+        
+        if len(test_dataset) > max_eval_samples:
+            logger.info(f"⚠️  Limiting test set to {max_eval_samples} samples (from {len(test_dataset)})")
+            indices = random.sample(range(len(test_dataset)), max_eval_samples)
+            test_dataset = Subset(test_dataset, indices)
+            logger.info(f"✅ Test size (limited): {len(test_dataset)}")
     
     # Calculate total training steps for distributed training
     num_samples = len(train_dataset)
@@ -249,14 +268,14 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     if training_args.local_rank in [-1, 0]:
         from dataclasses import asdict
         wandb.init(
-            project="MoleculeQA-Finetuning",
+            project="QA_Bench",
             name=training_args.run_name,
             config={
                 "training": training_args.to_dict(),
                 "model": asdict(model_args),
                 "data": asdict(data_config),
             },
-            mode="offline",
+            # mode="offline",
         )
     
     # Initialize Trainer with task-specific config and actual datasets
@@ -276,6 +295,8 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         'entropy_gids_enable': model_args.entropy_gids_enable,
         'enable_blending': model_args.enable_blending,
         'zero_shot': model_args.zero_shot,
+        'load_ckpt_before_peft': model_args.load_ckpt_before_peft,
+        'ckpt_path': model_args.model_name_or_path if model_args.load_ckpt_before_peft else None,
     })
     
     # Create trainer with actual datasets (no workaround needed!)
@@ -295,9 +316,16 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     
     # Load from pretrained checkpoint (Stage 2 full model)
     # Note: Zero-shot mode REQUIRES a checkpoint for evaluation!
-    if model_args.model_name_or_path:
+    # Skip if checkpoint was already loaded before PEFT in model initialization
+    load_ckpt_before_peft = model_args.load_ckpt_before_peft
+    logger.info(f"🔍 load_ckpt_before_peft = {load_ckpt_before_peft}")
+    logger.info(f"🔍 model_name_or_path = {model_args.model_name_or_path}")
+    
+    if model_args.model_name_or_path and not load_ckpt_before_peft:
         logger.info(f"Loading from pretrained checkpoint: {model_args.model_name_or_path}")
         trainer.load_from_ckpt(model_args.model_name_or_path)
+    elif model_args.model_name_or_path and load_ckpt_before_peft:
+        logger.info(f"✅ Checkpoint was loaded before PEFT model creation in model initialization")
     elif model_args.zero_shot:
         raise ValueError(
             "Zero-shot mode requires a pretrained checkpoint! "
@@ -352,7 +380,7 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         trainer.train()
     
     # Evaluate on validation set if available
-    if val_dataset is not None and len(val_dataset) > 0:
+    if val_dataset is not None and len(val_dataset) > 0 and training_args.eval_strategy != "no":
         logger.info("\nEvaluating on validation set...")
         eval_results = trainer.evaluate()
         logger.info(f"Validation results: {eval_results}")
@@ -401,9 +429,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--deepspeed_stage",
         type=int,
-        default=2,
+        default=3,
         choices=[2, 3],
-        help="DeepSpeed ZeRO stage (2 or 3)",
+        help="DeepSpeed ZeRO stage (2 or 3). Default 3 for evaluation/inference support.",
     )
     parser.add_argument(
         "--local_rank",
@@ -432,18 +460,28 @@ if __name__ == "__main__":
     output_dir = f"checkpoints/{run_name}/"
     os.makedirs(output_dir, exist_ok=True)
     
+    # Check if we're doing zero-shot evaluation (no training)
+    # If num_train_epochs == 0, disable DeepSpeed for pure inference
+    num_train_epochs = training_config_preview.get('num_train_epochs', 1)
+    
     # Setup DeepSpeed config based on command-line argument
     deepspeed_config = None
-    if args.deepspeed_stage == 3:
-        deepspeed_config = os.path.join(BASE_DIR, "configs/deepspeed/ds_config_zero3.json")
-    else:
-        deepspeed_config = os.path.join(BASE_DIR, "configs/deepspeed/ds_config_zero2.json")
-    
-    if not os.path.exists(deepspeed_config):
-        logger.warning(f"Warning: DeepSpeed config not found at {deepspeed_config}")
+    if num_train_epochs == 0:
+        logger.info("=" * 80)
+        logger.info("🎯 num_train_epochs=0 detected: Disabling DeepSpeed for pure evaluation mode")
+        logger.info("=" * 80)
         deepspeed_config = None
     else:
-        logger.info(f"Using DeepSpeed ZeRO-{args.deepspeed_stage} config: {deepspeed_config}")
+        if args.deepspeed_stage == 3:
+            deepspeed_config = os.path.join(BASE_DIR, "configs/deepspeed/ds_config_zero3.json")
+        else:
+            deepspeed_config = os.path.join(BASE_DIR, "configs/deepspeed/ds_config_zero2.json")
+        
+        if not os.path.exists(deepspeed_config):
+            logger.warning(f"Warning: DeepSpeed config not found at {deepspeed_config}")
+            deepspeed_config = None
+        else:
+            logger.info(f"Using DeepSpeed ZeRO-{args.deepspeed_stage} config: {deepspeed_config}")
 
     # Parse arguments from YAML files using HfArgumentParser
     model_args, training_args, data_config = parse_args_from_yaml(
