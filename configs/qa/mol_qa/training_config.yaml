@@ -4,7 +4,7 @@
 run_name: molqa_v2_debug
 
 # Training hyperparameters
-num_train_epochs: 10
+num_train_epochs: 20
 learning_rate: 1.0e-4  # Initial learning rate for MoleculeQA finetuning
 weight_decay: 0.05
 warmup_steps: 100

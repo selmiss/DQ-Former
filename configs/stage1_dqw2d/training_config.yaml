@@ -1,10 +1,10 @@
 # Training Configuration for Stage 1 (HuggingFace TrainingArguments compatible)
 
 # Experiment naming
-run_name: stage1_dqw2d_test
+run_name: edt_former_s1_large
 
 # Training hyperparameters
-num_train_epochs: 10
+num_train_epochs: 15
 learning_rate: 1.0e-4
 weight_decay: 0.05
 warmup_steps: 100

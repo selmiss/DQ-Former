@@ -157,7 +157,7 @@ def main(model_args, training_args, data_config, test_mode=False):
                 "model": asdict(model_args),
                 "data": asdict(data_config),
             },
-            mode="offline",  # Change to "online" if you want online logging
+            # mode="offline",  # Change to "online" if you want online logging
         )
     
     # Create callbacks
@@ -237,7 +237,8 @@ if __name__ == "__main__":
     
     # Setup output directory
     run_name = training_config_preview.get('run_name', 'default_run')
-    output_dir = f"checkpoints/{run_name}/"
+    checkpoint_base_dir = os.environ.get('CHECKPOINT_DIR', 'checkpoints')
+    output_dir = os.path.join(checkpoint_base_dir, run_name)
     os.makedirs(output_dir, exist_ok=True)
     
     # Setup DeepSpeed config based on command-line argument

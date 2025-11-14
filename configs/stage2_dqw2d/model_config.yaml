@@ -2,21 +2,21 @@
 # These parameters define the model architecture
 
 # Stage 1 checkpoint
-stage1_path: checkpoints/stage1_dqw2d/final_model/model.safetensors
+stage1_path: checkpoints/edt_former_s1_large/final_model/model.safetensors
 
 # QFormer Configuration
 use_flash_attention: True
 use_dq_encoder: True
-num_query_tokens: 8
-embed_dim: 256
-cross_attention_freq: 2
+num_query_tokens: 32
+embed_dim: 512
+cross_attention_freq: 1
 
 # Graph Encoder Configuration
 local_q_only: False
 
 # Blending Module Configuration
 enable_blending: True
-num_layers: 4
+num_layers: 8
 num_heads: 8
 
 # LLM Configuration

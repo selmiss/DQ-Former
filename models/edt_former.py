@@ -4,7 +4,7 @@ from typing import Dict, Optional
 
 from models.mol_llama_encoder import MolLLaMAEncoder
 from models.DQ_former_encoder import DQMolLLaMAEncoder
-from models.mol_llama import MolLLaMA, DQMolLLaMA
+from models.mol_llama import DQMolLLaMA
 
 
 class EDTPretrainModel(nn.Module):
@@ -85,29 +85,18 @@ class EDTFinetuneModel(nn.Module):
         # Read enable_blending from the config that was already set
         enable_blending = getattr(model_config.blending_module_config, 'enable_blending', False)
         
-        if model_config.qformer_config.use_dq_encoder:
-            print(f"Using DQMolLLaMA, enable_blending: {enable_blending}")
-            self.model = DQMolLLaMA(
-                config=model_config,
-                vocab_size=vocab_size,
-                torch_dtype=torch_dtype,
-                enable_flash=model_args.enable_flash,
-                add_ids=add_ids,
-                freeze_llm=model_args.freeze_llm,
-                brics_gids_enable=model_args.brics_gids_enable,
-                entropy_gids_enable=model_args.entropy_gids_enable,
-                enable_blending=enable_blending,
-            )
-        else:
-            print("Using MolLLaMA")
-            self.model = MolLLaMA(
-                config=model_config,
-                vocab_size=vocab_size,
-                torch_dtype=torch_dtype,
-                enable_flash=model_args.enable_flash,
-                freeze_llm=model_args.freeze_llm,
-                enable_blending=enable_blending,
-            )
+        print(f"Using DQMolLLaMA, enable_blending: {enable_blending}")
+        self.model = DQMolLLaMA(
+            config=model_config,
+            vocab_size=vocab_size,
+            torch_dtype=torch_dtype,
+            enable_flash=model_args.enable_flash,
+            add_ids=add_ids,
+            freeze_llm=model_args.freeze_llm,
+            brics_gids_enable=model_args.brics_gids_enable,
+            entropy_gids_enable=model_args.entropy_gids_enable,
+            enable_blending=enable_blending,
+        )
 
     def load_from_stage1_ckpt(self, ckpt_path):
         """Load encoder weights from Stage 1 checkpoint."""
