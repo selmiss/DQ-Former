@@ -4,7 +4,7 @@ import numpy as np
 import matplotlib.font_manager as font_manager
 from matplotlib import rcParams
 # 任务和指标
-tasks = ["Structure", "Source", "Property", "Application", "Pampa", "BBBP"]
+tasks = ["Pampa", "BBBP", "Structure", "Source", "Property", "Application"]
 metrics = ["(EM)", "(Pass@1)", "(EM)", "(Pass@1)", "(Percentile)", "(Resolved)"]
 
 # 模型
@@ -19,12 +19,12 @@ models = [
 
 # 每个模型的得分
 scores = np.array([
-    [74.55, 72.93, 50.71, 48.58, 82.31, 75.00],  # 模型1
-    [33.28, 33.49, 32.41, 26.26, 51.35, 62.20],  # 模型2
-    [32.35, 41.92, 31.05, 28.21, 55.37, 59.31],  # 模型3
-    [72.79, 70.82, 43.08, 41.22, 53.29, 54.55],  # 模型4
-    [73.16, 70.22, 45.70, 46.18, 66.80, 58.06],  # 模型5
-    [73.17, 70.50, 44.79, 44.19, 53.93, 50.90],  # 模型6
+    [82.31, 75.00, 74.55, 72.93, 50.71, 48.58, ],  # 模型1
+    [51.35, 62.20, 33.28, 33.49, 32.41, 26.26, ],  # 模型2
+    [55.37, 59.31, 32.35, 41.92, 31.05, 28.21, ],  # 模型3
+    [53.29, 54.55, 72.79, 70.82, 43.08, 41.22, ],  # 模型4
+    [66.80, 58.06, 73.16, 70.22, 45.70, 46.18, ],  # 模型5
+    [53.93, 50.90, 73.17, 70.50, 44.79, 44.19, ],  # 模型6
 ])
 
 # 柱状图参数
@@ -41,7 +41,8 @@ rcParams["font.family"] = prop.get_name()
 
 
 
-plt.figure(figsize=(12, 8))
+plt.figure(figsize=(12, 7.5))
+
 plt.grid(axis="y", color="lightgray", linestyle="-", linewidth=0.5)
 
 for i, model in enumerate(models):
@@ -67,12 +68,14 @@ for i, model in enumerate(models):
 plt.xticks(x + bar_width * (len(models)-1)/2, [f"{t}" for t, m in zip(tasks, metrics)], fontproperties=prop, fontsize=18)
 # plt.ylim(0, 90)
 plt.ylabel("Accuracy (%)", fontproperties=prop, fontsize=18)
+plt.ylim(20, 90)
+
 
 
 plt.legend(
-    loc="upper center",      # 图例放在图形上方
-    bbox_to_anchor=(0.5, 1.16),  # (x, y)，y>1 表示在图外上方
-    ncol=3,                  # 横向排列，3 列
+    loc="upper right",      # 图例放在图形上方
+    # bbox_to_anchor=(0.5, 1.18),  # (x, y)，y>1 表示在图外上方
+    ncol=1,                  # 横向排列，3 列
     frameon=True,            # 显示边框
     fontsize=20,              # 字体大小
     edgecolor="lightblue",        # 边框颜色
@@ -92,5 +95,5 @@ plt.tight_layout()
 
 # 保存图片
 os.makedirs("./utils/figures/results", exist_ok=True)
-plt.savefig("./utils/figures/results/coverpage_v2.pdf", dpi=600, bbox_inches="tight")  # 也可以保存为 PDF 矢量图
+plt.savefig("./utils/figures/results/coverpage_v3.pdf", dpi=600, bbox_inches="tight")  # 也可以保存为 PDF 矢量图
 plt.close()

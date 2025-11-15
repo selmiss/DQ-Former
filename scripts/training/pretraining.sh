@@ -15,7 +15,7 @@ else
 fi
 
 # Configuration
-export GPUs="6,7"  # GPU IDs to use
+export GPUs="0"  # GPU IDs to use
 export MASTER_PORT=29500  # Master port for distributed training
 
 # Set CUDA architecture to avoid compilation warnings
