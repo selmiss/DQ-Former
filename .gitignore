@@ -6,6 +6,7 @@ init_env_mine.sh
 wandb/
 data/
 data
+checkpoints
 checkpoints/
 checkpoints_backup/
 __pycache__/
