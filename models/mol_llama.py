@@ -119,7 +119,6 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         elif torch_dtype == "float32":
             torch_dtype = torch.float32
 
-
         # -------------------------- train llm ----------------------------------
         if not freeze_llm:
             logger.info(f"Loading LLM model: {config.llm_config.llm_model}")

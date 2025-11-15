@@ -10,7 +10,8 @@ from torch_geometric.data import Batch
 from sklearn.metrics import f1_score, precision_score
 
 from transformers import AutoTokenizer, LlamaForCausalLM
-from models.mol_llama import MolLLaMA, DQMolLLaMA, DQMolLLaMAEncoder
+from models.mol_llama import DQMolLLaMA 
+from models.DQ_former_encoder import DQMolLLaMAEncoder
 from models.configuration import MolLLaMAConfig
 
 from dataset import ZeroshotDataset, ZeroshotCollater
@@ -45,9 +46,9 @@ def main(args):
     # Initialize model directly instead of using from_pretrained
     config = MolLLaMAConfig(
         llm_config={'llm_model': args.pretrained_model_name_or_path},
-        qformer_config={'use_dq_encoder': args.use_dq_encoder, 'use_flash_attention': True},  # Adjust as needed
+        qformer_config={'use_dq_encoder': args.use_dq_encoder, 'use_flash_attention': True, 'num_query_tokens': 32, 'embed_dim': 512, 'cross_attention_freq': 1},  # Adjust as needed
         graph_encoder_config={'encoder_types': ['unimol', 'moleculestm'] if args.enable_blending else ['unimol']},  # Adjust as needed
-        blending_module_config={'enable_blending': args.enable_blending},
+        blending_module_config={'enable_blending': args.enable_blending, 'num_layers': 8, 'num_heads': 8},
         torch_dtype="float16"
     )
     if args.use_dq_encoder:
@@ -61,6 +62,7 @@ def main(args):
             brics_gids_enable=args.brics_gids_enable,
             entropy_gids_enable=args.entropy_gids_enable,
             enable_blending=args.enable_blending,
+            freeze_llm=args.freeze_llm,
         )
         model.load_from_ckpt(args.qformer_path)
         encoder = model.encoder
@@ -71,11 +73,6 @@ def main(args):
             blending_module_config = config.blending_module_config,
             qformer_config = config.qformer_config,
         )
-    else:
-        config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
-        model = MolLLaMA.from_pretrained(args.pretrained_model_name_or_path, vocab_size=len(tokenizer))
-        # model.load_from_ckpt(args.qformer_path)
-        encoder = model.encoder
 
 
     model = model.to(args.device)
@@ -105,6 +102,11 @@ def main(args):
                     graph_batch[key][key_] = graph_batch[key][key_].to(args.device)
             elif key == 'moleculestm':
                 graph_batch[key] = graph_batch[key].to(args.device)
+        
+        # Add brics_gids and entropy_gids to graph_batch
+        graph_batch['brics_gids'] = brics_gids
+        graph_batch['entropy_gids'] = entropy_gids
+        
         text_batch = text_batch.to(args.device)
 
         # Generate
@@ -123,8 +125,6 @@ def main(args):
                 text_batch = text_batch,
                 pad_token_id = tokenizer.pad_token_id,
                 eos_token_id = terminators,
-                brics_gids = brics_gids,
-                entropy_gids = entropy_gids,
             )
         
         generated_texts = tokenizer.batch_decode(outputs, skip_special_tokens=True)
@@ -144,6 +144,10 @@ def main(args):
             for k, v in graph_batch['unimol'].items():
                 new_graph_batch['unimol'][k] = v[no_format_indices]
             new_graph_batch['moleculestm'] = Batch.from_data_list(graph_batch['moleculestm'].index_select(no_format_indices))
+            
+            # Add brics_gids and entropy_gids to new_graph_batch
+            new_graph_batch['brics_gids'] = [list(brics_gids)[i] for i in no_format_indices]
+            new_graph_batch['entropy_gids'] = [list(entropy_gids)[i] for i in no_format_indices]
 
             new_text_batch = tokenizer(
                 new_texts,
@@ -170,8 +174,6 @@ def main(args):
                 text_batch = new_text_batch,
                 pad_token_id = tokenizer.pad_token_id,
                 eos_token_id = terminators,
-                brics_gids = [list(brics_gids)[i] for i in no_format_indices],
-                entropy_gids = [list(entropy_gids)[i] for i in no_format_indices],
             )
 
             new_generated_texts = tokenizer.batch_decode(new_generated_texts, skip_special_tokens=True)
@@ -288,6 +290,7 @@ if __name__ == '__main__':
     parser.add_argument('--debug_mode', default=False, action='store_true')
     parser.add_argument('--enable_blending', default=False, action='store_true')
     parser.add_argument('--llm_baseline', default=False, action='store_true')
+    parser.add_argument('--freeze_llm', default=False, action='store_true')
     args = parser.parse_args()
     main(args)
 
