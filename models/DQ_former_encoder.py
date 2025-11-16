@@ -53,6 +53,7 @@ class DQMolLLaMAEncoder(nn.Module):
         self.local_q_only = graph_encoder_config.local_q_only
         self.brics_gids_enable = brics_gids_enable
         self.entropy_gids_enable = entropy_gids_enable
+        self.use_dq_encoder = qformer_config.use_dq_encoder
         print(f"local_q_only: {self.local_q_only}")
 
         # Initialize graph encoders
@@ -84,7 +85,10 @@ class DQMolLLaMAEncoder(nn.Module):
         self.Qformer, self.query_tokens, self.scibert_tokenizer = \
                     self.init_DQformer(qformer_config, hidden_size)
         
-        self.local_q_proj = nn.Linear(hidden_size, self.Qformer.config.hidden_size)
+        if self.use_dq_encoder:
+            self.local_q_proj = nn.Linear(hidden_size, self.Qformer.config.hidden_size)
+        else:
+            self.local_q_proj = None
         self.register_buffer("static_q_mask", torch.ones(1, qformer_config.num_query_tokens, dtype=torch.bool))
 
         # Initialize Projectors, Not be used for stage2 training
@@ -439,8 +443,12 @@ class DQMolLLaMAEncoder(nn.Module):
 
         # ---------- (A) 构造动态 Local-Q ----------
         # 将每个样本的节点嵌入投射为 Local-Q，长度 = 节点数
-        local_q = self.local_q_proj(pooled_frags)           # [B, N, D]
-        local_q_mask = frag_mask                         # [B, N]  True=keep / 1
+        if self.use_dq_encoder:
+            local_q = self.local_q_proj(pooled_frags)           # [B, N, D]
+            local_q_mask = frag_mask                         # [B, N]  True=keep / 1
+        else:
+            local_q = None
+            local_q_mask = None
 
         # ---------- (B) 取静态 Global-Q ----------
         static_q = self.query_tokens.expand(B, -1, -1)    # [B, Q_fixed, D]
@@ -451,11 +459,15 @@ class DQMolLLaMAEncoder(nn.Module):
             query_embeds = local_q
             query_mask = local_q_mask
             target_len = self.max_local_q
-        else:
+        elif self.use_dq_encoder:
             query_embeds = torch.cat([static_q, local_q], dim=1)          # [B, Q_fixed+N, D]
             query_mask   = torch.cat([static_q_mask, local_q_mask], dim=1)  # [B, Q_fixed+N]
             target_len = self.query_tokens.shape[1] + self.max_local_q
-
+        else:
+            query_embeds = static_q
+            query_mask = static_q_mask
+            target_len = self.query_tokens.shape[1]
+        
         # Ensure fixed query length across ranks for DDP all_gather
         cur_len = query_embeds.shape[1]
         if cur_len > target_len:

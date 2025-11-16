@@ -4,7 +4,7 @@ from torch.utils.data import Dataset
 from data_provider.mol_dataset import smiles2graph, get_unimol_data
 from collections import defaultdict
 from torch_geometric.data import Data, Batch
-from data_provider.tokenization_utils import batch_tokenize_messages_list, batch_tokenize_messages_list_simple
+from data_provider.tokenization_utils import batch_tokenize_messages_list
 from data_provider.collaters import Mol3DCollater
 import numpy as np
 from tqdm import tqdm
@@ -175,12 +175,38 @@ class ZeroshotCollater():
         graph_batch['moleculestm'] = Batch.from_data_list(data_moleculestm)
 
         if self.only_llm:
-            tokenized = batch_tokenize_messages_list_simple(messages_list, self.tokenizer, 
-                                                            self.llm_version, padding_side='left')
+            # Use native tokenizer chat template for standard LLM mode
+            # This avoids needing mol_token_id and uses the model's built-in formatting
+            # Benefits:
+            # 1. No modification to pretrained tokenizer vocabulary
+            # 2. Uses model's official chat template (e.g., Llama3, Qwen, etc.)
+            # 3. Ensures compatibility with model's expected input format
+            text_inputs = []
+            for messages in messages_list:
+                # Apply chat template to format messages (system, user, assistant)
+                text = self.tokenizer.apply_chat_template(
+                    messages, 
+                    tokenize=False, 
+                    add_generation_prompt=True
+                )
+                text_inputs.append(text)
+            
+            # Batch tokenize with left padding (for batch generation)
+            # Note: padding_side='left' should already be set in inference.py
+            tokenized = self.tokenizer(
+                text_inputs,
+                padding='longest',
+                truncation=False,
+                return_tensors='pt',
+                add_special_tokens=False,  # Template already added them
+            )
+            # Add dummy labels for consistency (not used in generation)
+            tokenized['labels'] = tokenized['input_ids'].clone()
+            text_batch = tokenized
         else:
             tokenized = batch_tokenize_messages_list(messages_list, self.tokenizer, 
                                                     self.llm_version, padding_side='left')
-        text_batch = tokenized
+            text_batch = tokenized
 
         return graph_batch, text_batch, answers, smiles, brics_gids, entropy_gids
 

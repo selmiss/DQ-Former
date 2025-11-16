@@ -6,6 +6,7 @@
 """
 import torch
 import torch.nn as nn
+import logging
 from torch.cuda.amp import autocast as autocast
 from peft import get_peft_model, LoraConfig, TaskType
 
@@ -23,10 +24,12 @@ from torch_geometric.data import Data, Batch
 from data_provider.mol_dataset import smiles2graph, get_unimol_data
 from data_provider.collaters import Mol3DCollater
 import numpy as np
-import logging
 from safetensors.torch import load_file as load_safetensors
 from pathlib import Path
+
 logger = logging.getLogger(__name__)
+# Set to ERROR level to suppress warnings (INFO < WARNING < ERROR < CRITICAL)
+logger.setLevel(logging.ERROR)
 
 def disabled_train(self, mode=True):
     """Overwrite model.train with this function to make sure train/eval mode
@@ -65,7 +68,7 @@ def unlock_new_token_embeddings(embedding_layer, new_token_ids, init="mean"):
     for idx in new_token_ids:
         embedding_layer.weight[idx].requires_grad = True
 
-    print(f"✅ unfrozen {len(new_token_ids)} tokens: {new_token_ids}")
+    logger.info(f"✅ Unfrozen {len(new_token_ids)} tokens: {new_token_ids}")
 
 
 class MolLLaMAPreTrainedModel(PreTrainedModel):
@@ -95,7 +98,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         ckpt_path=None,
     ):
         super().__init__(config)
-
+        self.config = config
         ## Intialize encoder
         if enable_blending:
             config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
@@ -501,25 +504,34 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
             assert False, f"Unexpected missing keys: {unexpected_keys}"
         logger.info(f"✅ Successfully loaded encoder and projector weights (LLM will be initialized separately)")
 
-    def load_from_ckpt(self, ckpt_path):
+    def load_from_ckpt(self, ckpt_path, lora_init=False):
         """
         Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors.
         
         Args:
             ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
         """
-        print(f"Loading from checkpoint: {ckpt_path}")
+        logger.info(f"Loading from checkpoint: {ckpt_path}")
         
         path = Path(ckpt_path)
+
+        if lora_init:
+            peft_config = LoraConfig(task_type=TaskType.CAUSAL_LM,
+                                        inference_mode=False,
+                                        r=self.config.llm_config.lora_config.r,
+                                        lora_alpha=self.config.llm_config.lora_config.lora_alpha,
+                                        lora_dropout=self.config.llm_config.lora_config.lora_dropout,
+                                        target_modules=['k_proj', 'v_proj', 'q_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'])
+            self.llm = get_peft_model(self.llm, peft_config)
         
         # Detect file type and load accordingly
         if path.suffix == '.safetensors':
             # Load HuggingFace safetensor format
-            print("Detected safetensors format")
+            logger.info("Detected safetensors format")
             state_dict_raw = load_safetensors(ckpt_path)
         else:
             # Load PyTorch checkpoint format
-            print("Detected PyTorch checkpoint format")
+            logger.info("Detected PyTorch checkpoint format")
             ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
             # Some checkpoints save state_dict directly, others wrap it
             state_dict_raw = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
@@ -539,7 +551,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         # Extract relevant state dict with prefix removal
         state_dict = {k[prefix_len:]:v for k,v in state_dict_raw.items() if k.startswith(prefix)}
         
-        print(f"Found {len(state_dict)} parameters to load")
+        logger.info(f"Found {len(state_dict)} parameters to load")
 
         missing_keys, unexpected_keys = self.load_state_dict(state_dict, strict=False)
 
@@ -547,13 +559,13 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         for k in missing_keys:
             if 'position_ids' in k: continue
             if not (k.startswith("encoder.graph_encoder.") or k.startswith("llm.")) or k.startswith("encoder.static_q_mask"):
-                print(f"❌ Unexpected missing key: {k}")
+                logger.warning(f"❌ Unexpected missing key: {k}")
             else:
-                print(f"[warning] Missing key: {k}")
+                logger.warning(f"Key: {k}, make sure this key is loaded before.")
             assert k.startswith("encoder.graph_encoder.") or \
                 k.startswith("llm.") or k.startswith("encoder.static_q_mask")
         
-        print(f"✅ Successfully loaded weights from {ckpt_path}")
+        logger.info(f"✅ Successfully loaded weights from {ckpt_path}")
         
     
     def load_from_stage1_ckpt(self, ckpt_path):
@@ -563,18 +575,18 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         Args:
             ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
         """
-        print(f"Loading from stage1 checkpoint: {ckpt_path}")
+        logger.info(f"Loading from stage1 checkpoint: {ckpt_path}")
         
         path = Path(ckpt_path)
         
         # Detect file type and load accordingly
         if path.suffix == '.safetensors':
             # Load HuggingFace safetensor format
-            print("Detected safetensors format")
+            logger.info("Detected safetensors format")
             state_dict_raw = load_safetensors(ckpt_path)
         else:
             # Load PyTorch Lightning checkpoint format
-            print("Detected PyTorch checkpoint format")
+            logger.info("Detected PyTorch checkpoint format")
             ckpt = torch.load(ckpt_path, map_location='cpu', weights_only=False)
             # Some checkpoints save state_dict directly, others wrap it
             state_dict_raw = ckpt['state_dict'] if 'state_dict' in ckpt else ckpt
@@ -591,9 +603,10 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
                 state_dict[k[14:]] = v
         
         if not state_dict:
-            print(f"Warning: No encoder weights found. Available keys: {list(state_dict_raw.keys())[:5]}...")
+            logger.warning(f"No encoder weights found. Available keys: {list(state_dict_raw.keys())[:5]}...")
         
-        print(f"Found {len(state_dict)} encoder parameters to load")
+        logger.info(f"Found {len(state_dict)} encoder parameters to load")
+        
         
         # Load state dict into encoder
         missing_keys, unexpected_keys = self.encoder.load_state_dict(state_dict, strict=False, assign=True)
@@ -604,7 +617,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         for k in missing_keys:
             assert k.startswith("graph_encoder."), f"Missing unexpected key: {k}"
         
-        print(f"✅ Successfully loaded encoder weights from {ckpt_path}")
+        logger.info(f"✅ Successfully loaded encoder weights from {ckpt_path}")
 
  
 def gen_3d_conformation_from_rdkit(smiles):
@@ -658,7 +671,7 @@ def get_mol_graphs(smiles_list, dictionary, device):
         atoms, coordinates = gen_3d_conformation_from_libraries(smiles)
 
         if atoms is None or coordinates is None:
-            print(f"Invalid SMILES for {idx}-th SMILES: {smiles}")
+            logger.warning(f"Invalid SMILES for {idx}-th SMILES: {smiles}")
             continue
 
         data_graphs['unimol'].append(

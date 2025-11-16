@@ -26,8 +26,8 @@ set -euo pipefail
 #   TARGET_COL=label ANSWER_MAP='{"1":"Positive","0":"Negative"}' bash binary.sh
 
 # Configuration - set these variables before running
-DATASET_VARIANT=${DATASET_VARIANT:-Pgp_Broccatelli}
-DATASET_NAME=${DATASET_NAME:-pgp}
+DATASET_VARIANT=${DATASET_VARIANT:-hERG}
+DATASET_NAME=${DATASET_NAME:-herg}
 SMILES_COL=${SMILES_COL:-smiles}
 TARGET_COL=${TARGET_COL:-Y}
 ANSWER_MAP=${ANSWER_MAP:-'{"1":"Active","0":"Inactive"}'}

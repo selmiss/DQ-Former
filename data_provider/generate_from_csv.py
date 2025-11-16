@@ -1,5 +1,61 @@
+"""
+CSV to JSONL Data Generator for Molecular Property Prediction
+
+This module converts molecular datasets from CSV format to JSONL format with 3D conformers.
+
+INPUT DATA FORMAT:
+==================
+The script accepts two types of input:
+
+1. Single CSV file (--csv):
+   - Must contain columns for SMILES strings and target labels
+   - Optional split column to specify train/val/test assignments
+   - Example CSV structure:
+     smiles,target,split
+     CCO,1,train
+     c1ccccc1,0,test
+
+2. CSV directory (--csv_dir):
+   - Must contain separate files: train.csv, valid.csv (or val.csv), test.csv
+   - Each file must have SMILES and target columns
+   - Split is determined by filename
+
+COMMAND LINE ARGUMENTS:
+========================
+Required:
+  --csv or --csv_dir: Input CSV file or directory path
+  --smiles_col: Name of column containing SMILES strings
+  --target_col: Name of column containing target labels
+  --answer_map: JSON mapping of target values to answer strings
+                Example: '{"1":"High permeability","0":"Low permeability"}'
+  --output_dir: Directory for output files
+
+Optional:
+  --dataset_name: Name prefix for output files (default: "dataset")
+  --prompts_json: Path to custom prompts JSON file
+  --split_col: Column name for train/val/test split tags
+  --train_ratio: Train split ratio (default: 0.8)
+  --val_ratio: Validation split ratio (default: 0.1)
+  --test_ratio: Test split ratio (default: 0.1)
+  --seed: Random seed for splitting (default: 42)
+  --max_rows: Maximum rows to process (for testing)
+
+OUTPUT FORMAT:
+==============
+1. Meta JSON file ({dataset_name}_meta.json):
+   - Contains dataset name, prompts, and split indices
+   
+2. Data JSONL file ({dataset_name}.jsonl):
+   - One JSON object per line with fields:
+     * smiles: SMILES string
+     * answer: Mapped target value
+     * atoms: List of atom symbols
+     * coordinates: List of 3D coordinates (Nx3 array)
+"""
+
 import argparse
 import csv
+import glob
 import json
 import os
 import random
@@ -25,6 +81,26 @@ except Exception:
 
 @dataclass
 class GenerationConfig:
+    """
+    Configuration for dataset generation from CSV.
+    
+    Attributes:
+        smiles_column_name: Name of CSV column containing SMILES strings
+        target_column_name: Name of CSV column containing target labels
+        answer_map: Dictionary mapping raw target values to human-readable answers
+                   Example: {"1": "Active", "0": "Inactive"}
+        dataset_name: Name identifier for the dataset (used in output filenames)
+        split_column_name: Optional CSV column specifying train/val/test split
+        train_ratio: Fraction of data for training (0.0-1.0)
+        val_ratio: Fraction of data for validation (0.0-1.0)
+        test_ratio: Fraction of data for testing (0.0-1.0)
+        random_seed: Seed for reproducible random splitting
+        max_rows: Optional limit on number of rows to process
+        prompts: Dictionary of prompt templates for different contexts
+                Format: {"default": {"system": "...", "user": "..."},
+                        "rationale": {"system": "...", "user": "..."},
+                        "task_info": {"system": "...", "user": "..."}}
+    """
     smiles_column_name: str
     target_column_name: str
     answer_map: Dict[str, str]
@@ -44,6 +120,22 @@ def read_csv_rows(
     target_column_name: str,
     max_rows: Optional[int] = None,
 ) -> List[Dict[str, str]]:
+    """
+    Read rows from a single CSV file.
+    
+    Args:
+        csv_path: Path to the CSV file
+        smiles_column_name: Name of the column containing SMILES strings
+        target_column_name: Name of the column containing target values
+        max_rows: Optional limit on number of rows to read
+        
+    Returns:
+        List of dictionaries, where each dict represents a CSV row
+        
+    Raises:
+        FileNotFoundError: If the CSV file doesn't exist
+        KeyError: If required columns are missing from the CSV
+    """
     if not os.path.isfile(csv_path):
         raise FileNotFoundError(f"CSV file not found: {csv_path}")
 
@@ -72,28 +164,91 @@ def read_csv_dir(
     target_column_name: str,
     max_rows: Optional[int] = None,
 ) -> List[Tuple[Dict[str, str], str]]:
+    """
+    Read rows from a directory containing separate train/val/test CSV files.
+    
+    Expected directory structure:
+        csv_dir/
+            train.csv (or train_*.csv)
+            valid.csv (or validation.csv, val.csv, valid_*.csv)
+            test.csv (or test_*.csv)
+    
+    Also supports nested 'raw' subdirectory structure:
+        csv_dir/
+            raw/
+                train_dataset.csv
+                valid_dataset.csv
+                test_dataset.csv
+    
+    Args:
+        csv_dir: Path to directory containing split CSV files
+        smiles_column_name: Name of the column containing SMILES strings
+        target_column_name: Name of the column containing target values
+        max_rows: Optional limit on total number of rows to read across all files
+        
+    Returns:
+        List of tuples (row_dict, split_name) where:
+            - row_dict: Dictionary representing a CSV row
+            - split_name: One of "train", "val", or "test"
+            
+    Raises:
+        NotADirectoryError: If csv_dir doesn't exist or isn't a directory
+        FileNotFoundError: If any required split file is missing
+    """
     if not os.path.isdir(csv_dir):
         raise NotADirectoryError(f"csv_dir not found or not a directory: {csv_dir}")
 
-    # Prefer common names
+    # Check for 'raw' subdirectory (for molnet structure)
+    raw_dir = os.path.join(csv_dir, "raw")
+    search_dir = raw_dir if os.path.isdir(raw_dir) else csv_dir
+
+    # Prefer common names (exact matches first, then patterns)
     candidates = {
         "train": ["train.csv"],
         "val": ["valid.csv", "validation.csv", "val.csv"],
         "test": ["test.csv"],
     }
     split_to_path: Dict[str, str] = {}
+    
+    # First try exact name matches
     for split, names in candidates.items():
         for name in names:
-            path = os.path.join(csv_dir, name)
+            path = os.path.join(search_dir, name)
             if os.path.isfile(path):
                 split_to_path[split] = path
                 break
+    
+    # If exact matches not found, try pattern matching (e.g., train_bace_1.csv)
+    if len(split_to_path) < 3:
+        for split in ["train", "val", "test"]:
+            if split in split_to_path:
+                continue
+            # Look for files matching patterns like train_*.csv, valid_*.csv, test_*.csv
+            patterns = []
+            if split == "train":
+                patterns = [os.path.join(search_dir, "train_*.csv")]
+            elif split == "val":
+                patterns = [
+                    os.path.join(search_dir, "valid_*.csv"),
+                    os.path.join(search_dir, "validation_*.csv"),
+                    os.path.join(search_dir, "val_*.csv"),
+                ]
+            elif split == "test":
+                patterns = [os.path.join(search_dir, "test_*.csv")]
+            
+            for pattern in patterns:
+                matches = glob.glob(pattern)
+                if matches:
+                    # Take the first match
+                    split_to_path[split] = matches[0]
+                    break
 
     missing = [s for s in ["train", "val", "test"] if s not in split_to_path]
     if missing:
         raise FileNotFoundError(
-            f"Could not locate CSV files for splits: {missing} in directory {csv_dir}. "
-            f"Looked for names: train.csv, valid.csv/validation.csv/val.csv, test.csv"
+            f"Could not locate CSV files for splits: {missing} in directory {csv_dir} or {search_dir}. "
+            f"Looked for names: train.csv, valid.csv/validation.csv/val.csv, test.csv, "
+            f"and patterns: train_*.csv, valid_*.csv, test_*.csv"
         )
 
     # Read in order train -> val -> test
@@ -112,6 +267,20 @@ def read_csv_dir(
 
 
 def get_default_prompts(dataset_name: str) -> Dict[str, Dict[str, str]]:
+    """
+    Generate default prompt templates for molecular property prediction.
+    
+    Args:
+        dataset_name: Name of the dataset for context in prompts
+        
+    Returns:
+        Dictionary with three prompt types:
+            - "default": Basic property prediction prompt
+            - "rationale": Prompt requesting prediction with explanation
+            - "task_info": Prompt with task context
+        Each prompt type contains "system" and "user" messages.
+        The placeholder <mol> is replaced with actual molecule data during inference.
+    """
     system_common = (
         f"You are a molecular property prediction assistant for the {dataset_name} task. "
         "Your final answer should be formatted exactly as the provided answer mapping string."
@@ -133,6 +302,27 @@ def get_default_prompts(dataset_name: str) -> Dict[str, Dict[str, str]]:
 
 
 def load_prompts_from_file(path: Optional[str], dataset_name: str) -> Dict[str, Dict[str, str]]:
+    """
+    Load custom prompt templates from a JSON file, or use defaults.
+    
+    Expected JSON format:
+    {
+        "default": {"system": "...", "user": "..."},
+        "rationale": {"system": "...", "user": "..."},
+        "task_info": {"system": "...", "user": "..."}
+    }
+    
+    Args:
+        path: Path to prompts JSON file, or None to use defaults
+        dataset_name: Dataset name for default prompts if path is None
+        
+    Returns:
+        Dictionary of prompt templates
+        
+    Raises:
+        FileNotFoundError: If specified path doesn't exist
+        KeyError: If required sections or keys are missing from the JSON
+    """
     if path is None:
         return get_default_prompts(dataset_name)
     if not os.path.isfile(path):
@@ -150,6 +340,19 @@ def load_prompts_from_file(path: Optional[str], dataset_name: str) -> Dict[str, 
 
 
 def parse_answer_map(mapping: str) -> Dict[str, str]:
+    """
+    Parse answer mapping from JSON string.
+    
+    Args:
+        mapping: JSON string mapping raw target values to answer strings
+                Example: '{"1":"Active","0":"Inactive"}'
+                
+    Returns:
+        Dictionary with normalized string keys and string values
+        
+    Raises:
+        ValueError: If mapping is not valid JSON or not a dictionary
+    """
     try:
         parsed = json.loads(mapping)
         if not isinstance(parsed, dict):
@@ -164,6 +367,30 @@ def parse_answer_map(mapping: str) -> Dict[str, str]:
 
 
 def generate_conformer_with_rdkit(smiles: str) -> Tuple[Optional[List[str]], Optional[np.ndarray]]:
+    """
+    Generate 3D molecular conformer from SMILES string using RDKit.
+    
+    This function:
+    1. Parses SMILES string into molecular structure
+    2. Adds hydrogens for embedding
+    3. Generates 3D conformer using distance geometry
+    4. Optimizes geometry using MMFF force field
+    5. Removes hydrogens to get heavy atoms only
+    6. Extracts atom symbols and 3D coordinates
+    
+    Args:
+        smiles: SMILES string representing the molecule
+        
+    Returns:
+        Tuple of (atoms, coordinates):
+            - atoms: List of atomic symbols (e.g., ['C', 'O', 'N'])
+            - coordinates: NumPy array of shape (N, 3) with 3D coordinates
+        Returns (None, None) if conformer generation fails
+        
+    Note:
+        Uses MMFF force field with multiple threads for optimization.
+        Number of threads controlled by NUM_WORKERS environment variable (default: 12).
+    """
     if Chem is None or AllChem is None:
         return None, None
     try:
@@ -207,6 +434,24 @@ def generate_conformer_with_rdkit(smiles: str) -> Tuple[Optional[List[str]], Opt
 
 
 def generate_conformer_with_openbabel(smiles: str) -> Tuple[Optional[List[str]], Optional[np.ndarray]]:
+    """
+    Generate 3D molecular conformer from SMILES string using OpenBabel (fallback).
+    
+    This function serves as a fallback when RDKit fails or is unavailable.
+    
+    Args:
+        smiles: SMILES string representing the molecule
+        
+    Returns:
+        Tuple of (atoms, coordinates):
+            - atoms: List of atomic symbols (e.g., ['C', 'O', 'N'])
+            - coordinates: NumPy array of shape (N, 3) with 3D coordinates
+        Returns (None, None) if conformer generation fails
+        
+    Note:
+        Uses MMFF94 force field with 10000 optimization steps.
+        Atomic symbols are obtained from RDKit's periodic table if available.
+    """
     if pybel is None:
         return None, None
     try:
@@ -228,6 +473,19 @@ def generate_conformer_with_openbabel(smiles: str) -> Tuple[Optional[List[str]],
 
 
 def generate_conformer(smiles: str) -> Tuple[Optional[List[str]], Optional[np.ndarray]]:
+    """
+    Generate 3D molecular conformer, trying RDKit first, then OpenBabel if needed.
+    
+    Args:
+        smiles: SMILES string representing the molecule
+        
+    Returns:
+        Tuple of (atoms, coordinates) from successful generator, or (None, None) if both fail
+        
+    Note:
+        This is the main conformer generation entry point.
+        Currently only tries RDKit due to early return when it fails.
+    """
     atoms, coordinates = generate_conformer_with_rdkit(smiles)
     if atoms is None or coordinates is None:
         return None, None
@@ -243,6 +501,26 @@ def build_splits(
     test_ratio: float = 0.1,
     seed: int = 42,
 ) -> Dict[str, List[int]]:
+    """
+    Build train/validation/test splits either from column values or by random splitting.
+    
+    Args:
+        num_records: Total number of records to split
+        split_column: Optional list of split tags (e.g., ['train', 'test', 'train', ...])
+                     If provided, splits are determined by these tags.
+                     Recognized tags: 'train'/'trn'/'training', 'val'/'valid'/'validation', 'test'/'tst'
+        train_ratio: Fraction for training set (used only if split_column is None)
+        val_ratio: Fraction for validation set (used only if split_column is None)
+        test_ratio: Fraction for test set (used only if split_column is None)
+        seed: Random seed for reproducible splitting (used only if split_column is None)
+        
+    Returns:
+        Dictionary mapping split names to lists of record indices:
+        {"train": [0, 2, 5, ...], "val": [1, 7, ...], "test": [3, 4, ...]}
+        
+    Raises:
+        ValueError: If ratios don't sum to 1.0 (when doing random splitting)
+    """
     if split_column is not None:
         split_map: Dict[str, List[int]] = {"train": [], "val": [], "test": []}
         for idx, tag in enumerate(split_column):
@@ -269,14 +547,43 @@ def build_splits(
 
 
 def row_to_answer(raw_value: str, answer_map: Dict[str, str]) -> Optional[str]:
+    """
+    Map a raw target value to its corresponding answer string.
+    
+    Tries multiple matching strategies:
+    1. Direct string match
+    2. Numeric normalization (for digit strings)
+    3. Float normalization (for "1.0", "0.0")
+    4. Case-insensitive match
+    
+    Args:
+        raw_value: Raw target value from CSV (e.g., "1", "0", "Active")
+        answer_map: Dictionary mapping raw values to answer strings
+        
+    Returns:
+        Mapped answer string if found, None otherwise
+        
+    Example:
+        answer_map = {"1": "Active", "0": "Inactive"}
+        row_to_answer("1", answer_map) -> "Active"
+        row_to_answer("1.0", answer_map) -> "Active"
+        row_to_answer("active", answer_map) -> None (no match)
+    """
     key = str(raw_value).strip()
     if key in answer_map:
         return answer_map[key]
     # Try numeric normalization
     if key.isdigit() and key in answer_map:
         return answer_map[key]
-    if key in ("1.0", "0.0") and key in answer_map:
-        return answer_map[key]
+    # Try to convert float strings (e.g., "1.0" -> "1", "0.0" -> "0")
+    try:
+        float_val = float(key)
+        if float_val.is_integer():
+            int_key = str(int(float_val))
+            if int_key in answer_map:
+                return answer_map[int_key]
+    except (ValueError, OverflowError):
+        pass
     # Case-insensitive direct match
     lower_map = {k.lower(): v for k, v in answer_map.items()}
     if key.lower() in lower_map:
@@ -290,6 +597,22 @@ def write_meta_json(
     split: Dict[str, List[int]],
     dataset_name: str,
 ) -> None:
+    """
+    Write metadata JSON file containing dataset information, prompts, and split indices.
+    
+    Args:
+        output_path: Path where the JSON file will be written
+        prompts: Dictionary of prompt templates
+        split: Dictionary mapping split names to record indices
+        dataset_name: Name of the dataset
+        
+    Output format:
+        {
+            "dataset": "dataset_name",
+            "prompts": {"default": {...}, "rationale": {...}, "task_info": {...}},
+            "split": {"train": [0, 2, ...], "val": [1, ...], "test": [3, ...]}
+        }
+    """
     meta = {
         "dataset": dataset_name,
         "prompts": prompts,
@@ -300,6 +623,20 @@ def write_meta_json(
 
 
 def write_data_jsonl(records: List[Dict], output_path: str) -> None:
+    """
+    Write data records to JSONL file (one JSON object per line).
+    
+    Args:
+        records: List of record dictionaries, each containing:
+                 - smiles: SMILES string
+                 - answer: Mapped target value
+                 - atoms: List of atom symbols
+                 - coordinates: List of 3D coordinates
+        output_path: Path where the JSONL file will be written
+        
+    Output format (one line per record):
+        {"smiles": "CCO", "answer": "Active", "atoms": ["C","C","O"], "coordinates": [[[...]]]}`
+    """
     with open(output_path, "w") as f:
         for rec in records:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
@@ -311,6 +648,33 @@ def generate(
     output_dir: str,
     config: GenerationConfig,
 ) -> Tuple[str, str]:
+    """
+    Main generation function: convert CSV data to JSONL format with 3D conformers.
+    
+    Processing steps:
+    1. Read CSV data from either single file or directory
+    2. For each row:
+       a. Extract SMILES and target value
+       b. Map target value using answer_map
+       c. Generate 3D conformer (atoms + coordinates)
+       d. Create record with all information
+    3. Build or use provided train/val/test splits
+    4. Write metadata JSON and data JSONL files
+    
+    Args:
+        csv_path: Path to single CSV file (mutually exclusive with csv_dir)
+        csv_dir: Path to directory with train/val/test CSV files (mutually exclusive with csv_path)
+        output_dir: Directory where output files will be written
+        config: GenerationConfig object with all configuration parameters
+        
+    Returns:
+        Tuple of (meta_json_path, data_jsonl_path)
+        
+    Notes:
+        - Molecules that fail conformer generation are skipped
+        - Rows with unmappable target values are skipped
+        - Progress is shown with tqdm progress bars
+    """
     os.makedirs(output_dir, exist_ok=True)
 
     data_records: List[Dict] = []
@@ -393,6 +757,12 @@ def generate(
 
 
 def main() -> None:
+    """
+    Command-line interface for CSV to JSONL conversion.
+    
+    Parses command-line arguments, validates configuration, and calls generate() function.
+    See module docstring at top of file for detailed usage information.
+    """
     parser = argparse.ArgumentParser(description="Generate zeroshot meta JSON and data JSONL from a CSV with SMILES and targets.")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--csv", help="Path to input CSV file")

@@ -16,7 +16,9 @@ Uni-Core/
 results/
 repos/
 tmp/
+baselines
 baselines/
+hf_home
 lightning_logs/
 /lightning_logs/
 /srun/

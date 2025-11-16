@@ -8,18 +8,35 @@ import warnings
 from torch.utils.data import DataLoader
 from torch_geometric.data import Batch
 from sklearn.metrics import f1_score, precision_score
-
-from transformers import AutoTokenizer, LlamaForCausalLM
-from models.mol_llama import DQMolLLaMA 
-from models.DQ_former_encoder import DQMolLLaMAEncoder
+import logging
+from transformers import AutoTokenizer, AutoModelForCausalLM
+from models.mol_llama import DQMolLLaMA
 from models.configuration import MolLLaMAConfig
-
+from peft import PeftModel
 from dataset import ZeroshotDataset, ZeroshotCollater
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+def load_unimol_dictionary():
+    """Load UniMol dictionary from HuggingFace."""
+    from huggingface_hub import hf_hub_download
+    from utils.unicore import Dictionary
+    
+    logger.info("Loading UniMol dictionary from HuggingFace...")
+    unimol_dictionary_path = hf_hub_download(
+        repo_id='dptech/Uni-Mol-Models',
+        filename='mol.dict.txt',
+    )
+    unimol_dictionary = Dictionary.load(unimol_dictionary_path)
+    unimol_dictionary.add_symbol("[MASK]", is_special=True)
+    logger.info(f"✅ Loaded UniMol dictionary with {len(unimol_dictionary)} symbols")
+    
+    return unimol_dictionary
 
 def main(args):
     # Load model and tokenizer
-    if 'Llama-2' in args.pretrained_model_name_or_path:
+    if 'Llama-2' or 'llama-2' in args.pretrained_model_name_or_path:
         llm_version = 'llama2'
     elif 'Llama-3' in args.pretrained_model_name_or_path:
         llm_version = 'llama3'
@@ -37,10 +54,25 @@ def main(args):
     else:
         tokenizer_path = args.tokenizer_path
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_path)
-    tokenizer.add_special_tokens({'pad_token': '[PAD]'})
-    tokenizer.add_special_tokens({'additional_special_tokens': ["<mol>"]})
-    tokenizer.mol_token_id = tokenizer("<mol>", add_special_tokens=False).input_ids[0]
+    
+    # Only add pad token if it doesn't exist
+    if tokenizer.pad_token is None:
+        tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+    
+    # Determine if we should use LLM-only mode
+    # This should be True if --only_llm flag is set OR if baseline_type is llm_lora/llm_only
+    use_llm_only_mode = args.only_llm or args.baseline_type in ['llm_lora', 'llm_only']
+    
+    # Only add <mol> token when NOT using only_llm mode
+    # When only_llm=True, the dataset replaces <mol> with actual SMILES strings,
+    # so we don't need (and shouldn't add) the <mol> token to avoid vocabulary mismatch
+    if not use_llm_only_mode:
+        tokenizer.add_special_tokens({'additional_special_tokens': ["<mol>"]})
+        tokenizer.mol_token_id = tokenizer("<mol>", add_special_tokens=False).input_ids[0]
+        logger.info(f"Added <mol> token with ID: {tokenizer.mol_token_id}")
+    
     tokenizer.padding_side = 'left'
+    logger.info(f"Tokenizer vocabulary size: {len(tokenizer)}")
 
     terminators = tokenizer.eos_token_id
     # Initialize model directly instead of using from_pretrained
@@ -51,9 +83,7 @@ def main(args):
         blending_module_config={'enable_blending': args.enable_blending, 'num_layers': 8, 'num_heads': 8},
         torch_dtype="float16"
     )
-    if args.use_dq_encoder:
-        if args.llm_baseline:
-            config.llm_config.llm_model = args.pretrained_model_name_or_path
+    if args.use_dq_encoder and args.baseline_type is None:
         model = DQMolLLaMA(
             config=config,
             vocab_size=len(tokenizer),
@@ -65,52 +95,74 @@ def main(args):
             freeze_llm=args.freeze_llm,
         )
         model.load_from_ckpt(args.qformer_path)
-        encoder = model.encoder
-    elif args.only_llm:
-        model = LlamaForCausalLM.from_pretrained(args.pretrained_model_name_or_path)
-        encoder = DQMolLLaMAEncoder(
-            graph_encoder_config = config.graph_encoder_config,
-            blending_module_config = config.blending_module_config,
-            qformer_config = config.qformer_config,
+    elif args.baseline_type == 'mollama':
+        config = MolLLaMAConfig(
+            llm_config={'llm_model': args.pretrained_model_name_or_path},
+            qformer_config={'use_dq_encoder': args.use_dq_encoder, 'use_flash_attention': True, 'num_query_tokens': 8, 'embed_dim': 256, 'cross_attention_freq': 2, 'max_local_query': 0},  # Adjust as needed
+            graph_encoder_config={'encoder_types': ['unimol', 'moleculestm'] if args.enable_blending else ['unimol']},  # Adjust as needed
+            blending_module_config={'enable_blending': True, 'num_layers': 4, 'num_heads': 8},
+            torch_dtype="float16"
         )
+        model = DQMolLLaMA(
+            config=config,
+            vocab_size=len(tokenizer),
+            torch_dtype="float16",
+            enable_flash=True,
+            brics_gids_enable=False,
+            entropy_gids_enable=False,
+            enable_blending=args.enable_blending,
+            freeze_llm=args.freeze_llm,
+        )
+        model.load_from_ckpt(args.qformer_path, lora_init=True)
+    elif args.baseline_type == 'llm_lora':
+        model = AutoModelForCausalLM.from_pretrained(args.pretrained_model_name_or_path)
+        model = PeftModel.from_pretrained(model, args.lora_path)
 
+    elif args.baseline_type == 'llm_only':
+        model = AutoModelForCausalLM.from_pretrained(args.pretrained_model_name_or_path)
+    elif args.only_llm:
+        model = AutoModelForCausalLM.from_pretrained(args.pretrained_model_name_or_path)
+        
 
     model = model.to(args.device)
+    model.eval()
 
     data_dir = os.path.join(args.data_dir, 'zeroshot', args.task_name)
-
+    unimol_dictionary = load_unimol_dictionary()
     dataset = ZeroshotDataset(data_dir=data_dir, 
                         split='test', prompt_type=args.prompt_type, 
-                        unimol_dictionary=encoder.unimol_dictionary,
-                        only_llm=args.only_llm)
+                        unimol_dictionary=unimol_dictionary,
+                        only_llm=use_llm_only_mode)
     if hasattr(dataset, 'positive_label') and hasattr(dataset, 'negative_label'):
         positive_label = dataset.positive_label
         negative_label = dataset.negative_label
     else:
         warnings.warn(f"Positive and negative labels not found in meta.json, using 'positive' and 'negative' as default.")
 
-    collater = ZeroshotCollater(tokenizer, encoder.unimol_dictionary, llm_version, args.only_llm)
+    collater = ZeroshotCollater(tokenizer, unimol_dictionary, llm_version, use_llm_only_mode)
     dataloader = DataLoader(dataset, batch_size=32, collate_fn=collater, shuffle=False)
 
     # ----------- Generation ----------- #
     pattern = r"[Ff]inal [Aa]nswer:"
     responses, answers, smiles_list = [], [], []
     for graph_batch, text_batch, answer, smiles, brics_gids, entropy_gids in tqdm(dataloader):
-        for key in graph_batch.keys():
-            if key == 'unimol':
-                for key_ in graph_batch[key].keys():
-                    graph_batch[key][key_] = graph_batch[key][key_].to(args.device)
-            elif key == 'moleculestm':
-                graph_batch[key] = graph_batch[key].to(args.device)
-        
-        # Add brics_gids and entropy_gids to graph_batch
-        graph_batch['brics_gids'] = brics_gids
-        graph_batch['entropy_gids'] = entropy_gids
+        # Only process graph_batch if NOT in LLM-only mode
+        if not use_llm_only_mode:
+            for key in graph_batch.keys():
+                if key == 'unimol':
+                    for key_ in graph_batch[key].keys():
+                        graph_batch[key][key_] = graph_batch[key][key_].to(args.device)
+                elif key == 'moleculestm':
+                    graph_batch[key] = graph_batch[key].to(args.device)
+            
+            # Add brics_gids and entropy_gids to graph_batch
+            graph_batch['brics_gids'] = brics_gids
+            graph_batch['entropy_gids'] = entropy_gids
         
         text_batch = text_batch.to(args.device)
 
         # Generate
-        if args.only_llm:
+        if use_llm_only_mode:
             outputs = model.generate(
                 inputs = text_batch['input_ids'],
                 attention_mask = text_batch['attention_mask'],
@@ -139,15 +191,16 @@ def main(args):
                 new_texts.append(original_text + generated_text + "\n\nFinal answer: ")
         
         if len(no_format_indices) > 0:
-            new_graph_batch = {"unimol": {}, "moleculestm": {}}
-            new_text_batch = {}
-            for k, v in graph_batch['unimol'].items():
-                new_graph_batch['unimol'][k] = v[no_format_indices]
-            new_graph_batch['moleculestm'] = Batch.from_data_list(graph_batch['moleculestm'].index_select(no_format_indices))
-            
-            # Add brics_gids and entropy_gids to new_graph_batch
-            new_graph_batch['brics_gids'] = [list(brics_gids)[i] for i in no_format_indices]
-            new_graph_batch['entropy_gids'] = [list(entropy_gids)[i] for i in no_format_indices]
+            # Only process graph batch if NOT in LLM-only mode
+            if not use_llm_only_mode:
+                new_graph_batch = {"unimol": {}, "moleculestm": {}}
+                for k, v in graph_batch['unimol'].items():
+                    new_graph_batch['unimol'][k] = v[no_format_indices]
+                new_graph_batch['moleculestm'] = Batch.from_data_list(graph_batch['moleculestm'].index_select(no_format_indices))
+                
+                # Add brics_gids and entropy_gids to new_graph_batch
+                new_graph_batch['brics_gids'] = [list(brics_gids)[i] for i in no_format_indices]
+                new_graph_batch['entropy_gids'] = [list(entropy_gids)[i] for i in no_format_indices]
 
             new_text_batch = tokenizer(
                 new_texts,
@@ -158,9 +211,12 @@ def main(args):
                 return_token_type_ids=False,
                 add_special_tokens=False,
             ).to(args.device)
-            new_text_batch.mol_token_flag = (new_text_batch.input_ids == tokenizer.mol_token_id).to(args.device)
+            
+            # Only set mol_token_flag when NOT in only_llm mode (DQMolLLaMA needs it)
+            if not use_llm_only_mode:
+                new_text_batch.mol_token_flag = (new_text_batch.input_ids == tokenizer.mol_token_id).to(args.device)
 
-            if args.only_llm:
+            if use_llm_only_mode:
                 new_generated_texts = model.generate(
                     inputs = new_text_batch['input_ids'],
                     attention_mask = new_text_batch['attention_mask'],
@@ -284,13 +340,14 @@ if __name__ == '__main__':
     parser.add_argument('--prompt_type', type=str, default='default', choices=['default', 'rationale', 'task_info'],)
     parser.add_argument('--output_name', type=str, default="zeroshot")
     parser.add_argument('--only_llm', default=False, action='store_true')
-    parser.add_argument('--use_dq_encoder', action='store_true')
+    parser.add_argument('--use_dq_encoder', default=False, action='store_true')
     parser.add_argument('--brics_gids_enable', default=False, action='store_true')
     parser.add_argument('--entropy_gids_enable', default=False, action='store_true')
     parser.add_argument('--debug_mode', default=False, action='store_true')
     parser.add_argument('--enable_blending', default=False, action='store_true')
-    parser.add_argument('--llm_baseline', default=False, action='store_true')
     parser.add_argument('--freeze_llm', default=False, action='store_true')
+    parser.add_argument('--baseline_type', type=str, default=None, choices=['mollama', 'llm_lora', 'llm_only'])
+    parser.add_argument('--lora_path', type=str, default=None)
     args = parser.parse_args()
     main(args)
 
