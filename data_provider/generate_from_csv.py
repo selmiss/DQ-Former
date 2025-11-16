@@ -400,17 +400,20 @@ def generate_conformer_with_rdkit(smiles: str) -> Tuple[Optional[List[str]], Opt
         num_atoms = mol.GetNumAtoms()
 
         mol = Chem.AddHs(mol)
+        
+        # Use configurable number of threads (default 16 to avoid overwhelming shared servers)
+        num_threads = int(os.environ.get('RDKIT_NUM_THREADS', '16'))
+        
         AllChem.EmbedMultipleConfs(
             mol,
             numConfs=1,
-            numThreads=0,
+            numThreads=num_threads,
             pruneRmsThresh=1.0,
             maxAttempts=2000,
             useRandomCoords=False,
         )
         try:
-            # Use all available CPU cores for optimization
-            num_threads = int(os.environ.get('NUM_WORKERS', '12'))  # 0 means use all cores
+            # Use same number of threads for optimization
             AllChem.MMFFOptimizeMoleculeConfs(mol, numThreads=num_threads)
             # AllChem.UFFOptimizeMoleculeConfs(mol, maxIters=10, numThreads=10)
 
