@@ -6,7 +6,7 @@
 model_name_or_path: unsloth/Llama-3.1-8B-Instruct # Automatically loads Stage 2 full model checkpoint
 
 baseline_type: mollama
-lora_path: zjunlp/llama3-instruct-molinst-molecule-8b
+lora_path: ${HF_HOME}/hub/models--DongkiKim--Mol-Llama-3.1-8B-Instruct/snapshots/dd99e6ea328e01d713ac31aaad017074a6126483/model.safetensors
 lora_init: True
 # QFormer Configuration
 use_flash_attention: True

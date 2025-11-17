@@ -1,6 +1,7 @@
 #! /bin/bash
 : "${BASE_DIR:?Environment variable BASE_DIR not set}"
 : "${DATA_DIR:?Environment variable DATA_DIR not set}"
+: "${HF_HOME:?Environment variable HF_HOME not set}"
 
 export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
 export CUDA_VISIBLE_DEVICES=6
@@ -24,7 +25,7 @@ for task_name in ${TASKS}; do
             --tokenizer_path DongkiKim/Mol-Llama-3.1-8B-Instruct \
             --data_dir ${DATA_DIR} \
             --task_name ${task_name} \
-            --qformer_path /home/UWO/zjing29/proj/DQ-Former/hf_home/hub/models--DongkiKim--Mol-Llama-3.1-8B-Instruct/snapshots/dd99e6ea328e01d713ac31aaad017074a6126483/model.safetensors \
+            --qformer_path ${HF_HOME}/hub/models--DongkiKim--Mol-Llama-3.1-8B-Instruct/snapshots/dd99e6ea328e01d713ac31aaad017074a6126483/model.safetensors \
             --prompt_type ${prompt_type} \
             --output_name molllama \
             --baseline_type mollama \

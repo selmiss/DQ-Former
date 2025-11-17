@@ -24,7 +24,7 @@ for task_name in ${TASKS}; do
             --tokenizer_path DongkiKim/Mol-Llama-2-7b-chat \
             --data_dir ${DATA_DIR} \
             --task_name ${task_name} \
-            --qformer_path hf_home/hub/models--DongkiKim--Mol-Llama-2-7b-chat/snapshots/30631d7bf0de1409bc48dc9a5baa833c851ab76a/model.safetensors \
+            --qformer_path ${HF_HOME}/hub/models--DongkiKim--Mol-Llama-2-7b-chat/snapshots/30631d7bf0de1409bc48dc9a5baa833c851ab76a/model.safetensors \
             --prompt_type ${prompt_type} \
             --output_name molllama_2 \
             --baseline_type mollama \
