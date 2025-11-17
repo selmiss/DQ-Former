@@ -35,6 +35,21 @@ def load_unimol_dictionary():
     return unimol_dictionary
 
 def main(args):
+    # Check if output files already exist
+    save_name = f"{args.output_name}_{args.prompt_type}"
+    output_dir = os.path.join(args.data_dir, 'results', args.task_name)
+    output_file = os.path.join(output_dir, f're_{save_name}.txt')
+    acc_file = os.path.join(output_dir, f'acc_{save_name}.txt')
+    
+    if os.path.exists(output_file) and os.path.exists(acc_file):
+        logger.info(f"Output files already exist, skipping inference:")
+        logger.info(f"  - {output_file}")
+        logger.info(f"  - {acc_file}")
+        print(f"⏭️  Skipping inference - output files already exist:")
+        print(f"  - {output_file}")
+        print(f"  - {acc_file}")
+        return
+    
     # Load model and tokenizer
     if 'Llama-2' or 'llama-2' in args.pretrained_model_name_or_path:
         llm_version = 'llama2'
@@ -283,8 +298,6 @@ def main(args):
 
 
     # Save the results
-    save_name = f"{args.output_name}_{args.prompt_type}"
-    output_dir = os.path.join(args.data_dir, 'results', args.task_name)
     os.makedirs(output_dir, exist_ok=True)
     with open(os.path.join(output_dir, f're_{save_name}.txt'), 'w', encoding='utf-8') as f:
         for response, answer, smiles, label, pred in zip(responses, answers, smiles_list, labels, preds):
@@ -340,6 +353,7 @@ if __name__ == '__main__':
     parser.add_argument('--prompt_type', type=str, default='default', choices=['default', 'rationale', 'task_info', 'default_variant_1', 'default_variant_2', 'default_variant_3', 'rationale_variant_1', 'rationale_variant_2', 'task_info_variant_1', 'task_info_variant_2', 'concise', 'scientific', 'step_by_step'],)
     parser.add_argument('--output_name', type=str, default="zeroshot")
     parser.add_argument('--only_llm', default=False, action='store_true')
+
     parser.add_argument('--use_dq_encoder', default=False, action='store_true')
     parser.add_argument('--brics_gids_enable', default=False, action='store_true')
     parser.add_argument('--entropy_gids_enable', default=False, action='store_true')
@@ -350,4 +364,3 @@ if __name__ == '__main__':
     parser.add_argument('--lora_path', type=str, default=None)
     args = parser.parse_args()
     main(args)
-

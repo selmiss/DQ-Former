@@ -6,10 +6,10 @@ export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
 export CUDA_VISIBLE_DEVICES=4
 
 # List of tasks to evaluate
-TASKS=${TASKS:-"bace bbbp pampa clintox hiv hia pgp ames dili herg"}
+TASKS=${TASKS:-"bace bbbp pampa clintox hia pgp ames dili herg"}
 
 # List of prompt types to use (all 13 prompts)
-PROMPT_TYPES=${PROMPT_TYPES:-"default_variant_1 default_variant_2 default_variant_3 rationale_variant_1 rationale_variant_2 task_info_variant_1 task_info_variant_2 concise scientific step_by_step"}
+PROMPT_TYPES=${PROMPT_TYPES:-"default_variant_1 default_variant_2 default_variant_3 rationale_variant_1 rationale_variant_2 task_info_variant_1 task_info_variant_2 binary_instruction confidence_instruction checklist_instruction"}
 
 for task_name in ${TASKS}; do
     echo "=================================================="
