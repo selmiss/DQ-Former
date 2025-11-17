@@ -45,11 +45,6 @@ if [ ! -d "${PROJECT_ROOT}/checkpoints/entropy_model" ]; then
     exit 1
 fi
 
-# Activate conda environment
-echo "Activating conda environment: edtformer"
-source ~/miniconda3/etc/profile.d/conda.sh
-conda activate edtformer
-
 # Navigate to project root
 cd "${PROJECT_ROOT}"
 
