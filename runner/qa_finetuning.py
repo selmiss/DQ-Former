@@ -53,6 +53,7 @@ from runner.trainers.qa import (
     MoleculeQATrainer,
     MoleculeGENQATrainer,
     MoleculePropertyQATrainer,
+    MoleculeReactionTrainer,
 )
 
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -223,6 +224,18 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     logger.info(f"Val size (full): {len(val_dataset)}")
     logger.info(f"Test size (full): {len(test_dataset)}")
     
+    # Apply training_ratio if specified (for data efficiency experiments)
+    training_ratio = getattr(data_config, 'training_ratio', 1.0)
+    if training_ratio < 1.0 and training_ratio > 0.0:
+        random.seed(getattr(data_config, 'random_seed', 42))
+        target_size = int(len(train_dataset) * training_ratio)
+        logger.info(f"⚠️  Using {training_ratio*100:.1f}% of training data: {target_size} samples (from {len(train_dataset)})")
+        indices = random.sample(range(len(train_dataset)), target_size)
+        train_dataset = Subset(train_dataset, indices)
+        logger.info(f"✅ Train size (limited): {len(train_dataset)}")
+    elif training_ratio <= 0.0 or training_ratio > 1.0:
+        logger.warning(f"⚠️  Invalid training_ratio: {training_ratio}. Must be between 0.0 and 1.0. Using all data.")
+    
     # Apply max_eval_samples limit if specified
     max_eval_samples = getattr(data_config, 'max_eval_samples', None)
     if max_eval_samples is not None and max_eval_samples > 0:
@@ -261,6 +274,10 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         trainer_class = MoleculeGENQATrainer
     elif task_type == 'property':
         trainer_class = MoleculePropertyQATrainer
+    elif task_type in ['reaction', 'forward_reaction', 'retrosynthesis', 'reagent_prediction', 'description_guided_molecule_design']:
+        # Use MoleculeReactionTrainer for all reaction/molecule generation tasks
+        trainer_class = MoleculeReactionTrainer
+        logger.info(f"Using MoleculeReactionTrainer for task: {task_type}")
     else:  # default to 'qa'
         trainer_class = MoleculeQATrainer
     
@@ -275,7 +292,7 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
                 "model": asdict(model_args),
                 "data": asdict(data_config),
             },
-            # mode="offline",
+            mode="offline",
         )
     
     # Initialize Trainer with task-specific config and actual datasets
@@ -297,6 +314,7 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         'zero_shot': model_args.zero_shot,
         'load_ckpt_before_peft': model_args.load_ckpt_before_peft,
         'ckpt_path': model_args.model_name_or_path if model_args.load_ckpt_before_peft else None,
+        'llm_only': getattr(model_args, 'llm_only', False),  # LLM-only mode for text-only tasks
     })
     
     # Create trainer with actual datasets (no workaround needed!)
@@ -505,9 +523,11 @@ if __name__ == "__main__":
     
     task_type = getattr(data_config, 'task_type', 'qa')
     mol_type = getattr(data_config, 'mol_type', 'mol')
+    training_ratio = getattr(data_config, 'training_ratio', 1.0)
     logger.info(f"Task Type: {task_type}")
     logger.info(f"Mol Type: {mol_type}")
     logger.info(f"Data Root: {data_config.root}")
+    logger.info(f"Training Ratio: {training_ratio*100:.1f}% of training data")
     logger.info(f"Zero-shot Mode: {model_args.zero_shot}")
     logger.info("-" * 60)
 

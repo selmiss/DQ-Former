@@ -90,6 +90,10 @@ class DataTrainingArguments:
         default=None,
         metadata={"help": "Maximum number of evaluation samples to use (for faster evaluation during training). None means use all samples."}
     )
+    training_ratio: float = field(
+        default=1.0,
+        metadata={"help": "Fraction of training data to use (0.0-1.0). Useful for data efficiency experiments. Default: 1.0 (use all data)."}
+    )
 
 
 @dataclass
@@ -189,6 +193,10 @@ class ModelArguments:
     load_ckpt_before_peft: bool = field(
         default=False,
         metadata={"help": "Whether to load checkpoint before creating PEFT model (in mol_llama.py) instead of after trainer creation."}
+    )
+    llm_only: bool = field(
+        default=False,
+        metadata={"help": "LLM-only mode: Skip encoder initialization entirely for text-only tasks (saves ~20-25 GB GPU memory)."}
     )
 
 

@@ -32,7 +32,7 @@ echo "Project root: $PROJECT_ROOT"
 
 # Configuration
 INPUT_JSON="$PROJECT_ROOT/data/Molecule-oriented_Instructions/description_guided_molecule_design.json"
-OUTPUT_DIR="$PROJECT_ROOT/data/Molecule-oriented_Instructions_jsonl/description_guided_molecule_design"
+OUTPUT_DIR="${OUTPUT_DIR:-${PROJECT_ROOT}/data/mol_instructions_processed}"
 
 # Allow override of max train samples via environment variable
 MAX_TRAIN_SAMPLES=${MAX_TRAIN_SAMPLES:-}  # Empty means process all

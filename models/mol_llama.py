@@ -96,24 +96,38 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         enable_blending=False,
         load_ckpt_before_peft=False,
         ckpt_path=None,
+        llm_only=False,  # New parameter: skip encoder for text-only tasks
     ):
         super().__init__(config)
         self.config = config
-        ## Intialize encoder
-        if enable_blending:
-            config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
-        self.encoder = DQMolLLaMAEncoder(
-            graph_encoder_config = config.graph_encoder_config,
-            blending_module_config = config.blending_module_config,
-            qformer_config = config.qformer_config,
-            brics_gids_enable = brics_gids_enable,
-            entropy_gids_enable = entropy_gids_enable,
-            enable_blending = enable_blending,
-        )
-        self.local_q_only = local_q_only
-        self.brics_gids_enable = brics_gids_enable
-        self.entropy_gids_enable = entropy_gids_enable
-        self.postprocess_encoder()
+        self.llm_only = llm_only
+        
+        ## Initialize encoder (skip if llm_only mode)
+        if not llm_only:
+            if enable_blending:
+                config.graph_encoder_config.encoder_types = ['unimol', 'moleculestm']
+            self.num_query_tokens = config.qformer_config.num_query_tokens
+            self.encoder = DQMolLLaMAEncoder(
+                graph_encoder_config = config.graph_encoder_config,
+                blending_module_config = config.blending_module_config,
+                qformer_config = config.qformer_config,
+                brics_gids_enable = brics_gids_enable,
+                entropy_gids_enable = entropy_gids_enable,
+                enable_blending = enable_blending,
+            )
+            self.local_q_only = local_q_only
+            self.brics_gids_enable = brics_gids_enable
+            self.entropy_gids_enable = entropy_gids_enable
+            self.postprocess_encoder()
+            logger.info("✅ Encoder initialized for molecule-text tasks")
+        else:
+            # LLM-only mode: no encoder needed
+            self.encoder = None
+            self.num_query_tokens = None
+            self.local_q_only = False
+            self.brics_gids_enable = False
+            self.entropy_gids_enable = False
+            logger.info("🚀 LLM-only mode: Skipping encoder initialization (saves ~20-25 GB GPU memory)")
         ## Initialize LLM
         if torch_dtype == "bfloat16":
             torch_dtype = torch.bfloat16
@@ -147,8 +161,12 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
             self.llm.resize_token_embeddings(vocab_size)
             
             # Create llm_proj BEFORE loading checkpoint so it can be loaded properly
-            self.llm_proj = nn.Linear(self.encoder.Qformer.config.hidden_size, 
-                                        self.llm.config.hidden_size)
+            # Skip if llm_only mode (no encoder)
+            if not llm_only:
+                self.llm_proj = nn.Linear(self.encoder.Qformer.config.hidden_size, 
+                                            self.llm.config.hidden_size)
+            else:
+                self.llm_proj = None
             
             # Load checkpoint before PEFT if requested
             if load_ckpt_before_peft and ckpt_path:
@@ -192,8 +210,12 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
                 unlock_new_token_embeddings(embed, add_ids, init="mean")
             
             # Create llm_proj for frozen LLM case too
-            self.llm_proj = nn.Linear(self.encoder.Qformer.config.hidden_size, 
-                                        self.llm.config.hidden_size)
+            # Skip if llm_only mode (no encoder)
+            if not llm_only:
+                self.llm_proj = nn.Linear(self.encoder.Qformer.config.hidden_size, 
+                                            self.llm.config.hidden_size)
+            else:
+                self.llm_proj = None
 
     def postprocess_encoder(self):
         self.encoder.Qformer.cls = None
@@ -207,6 +229,170 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         self.encoder.text_proj = None
         self.encoder.gtm_head = None
 
+    def inject_queries_multi_molecule(
+        self,
+        query_output: torch.Tensor,          # [B, Q_total, D]
+        text_embeds: torch.Tensor,           # [B, L, D]
+        mol_token_flag: torch.Tensor,        # [B, L]  bool
+        attention_mask: torch.Tensor,        # [B, L]  0/1, 左 padding
+        labels: torch.Tensor,                # [B, L]  int  (可含 -100)
+        max_pos: int,                        # llm.config.max_position_embeddings
+        inner_cluster: torch.Tensor,         # Not used in current simplified version
+        inner_cluster_batch: torch.Tensor,   # Not used in current simplified version
+        num_global_tokens: int,              # number of global tokens per molecule
+        local_q_only: bool = False,
+        entropy_gids: torch.Tensor = None,   # For multi-molecule support
+    ):
+        """
+        Multi-molecule version of inject_queries.
+        
+        Logic:
+        1. Detect continuous <mol> sequences (e.g., <mol> <mol> <mol> for 3 molecules)
+        2. Each molecule group gets the SAME global queries (first num_global_tokens)
+           - Within each molecule, <mol> tokens cycle through global queries by position
+           - This allows all molecules to share the same global representation
+        3. Insert remaining local queries after the last <mol> token
+        
+        Example with 3 molecules and 8 global tokens:
+            Molecule 1: <mol>[0] <mol>[1] ... <mol>[7]
+            Molecule 2: <mol>[0] <mol>[1] ... <mol>[7]  (same pattern)
+            Molecule 3: <mol>[0] <mol>[1] ... <mol>[7]  (same pattern)
+        
+        Args:
+            inner_cluster: Molecule tracking info (used during encoding, not injection)
+            inner_cluster_batch: Batch tracking info (used during encoding, not injection)
+            num_global_tokens: number of global query tokens (e.g., 8 or 32)
+        """
+        import ipdb; ipdb.set_trace()
+        ignore_index = -100
+        B, _, D = query_output.shape
+        query_output = query_output.to(text_embeds.dtype)
+
+        embeds_list, mask_list, label_list, new_lengths = [], [], [], []
+
+        for i in range(B):
+            flag_i = mol_token_flag[i].nonzero(as_tuple=False).squeeze()  # <mol> positions
+            q_i = query_output[i]  # [Q_total, D]
+            n_true = flag_i.numel()  # number of <mol> tokens
+            n_q = q_i.size(0)  # total number of queries
+            pad_left = (attention_mask[i] == 0).sum().item()
+            
+            # Detect continuous <mol> sequences for molecule grouping
+            mol_positions = flag_i if flag_i.dim() > 0 else flag_i.unsqueeze(0)
+            if mol_positions.numel() == 0:
+                # No <mol> tokens - shouldn't happen but handle gracefully
+                embeds_list.append(text_embeds[i])
+                mask_list.append(attention_mask[i])
+                if labels is not None:
+                    label_list.append(labels[i])
+                else:
+                    label_list.append(None)
+                new_lengths.append(text_embeds[i].size(0))
+                continue
+            
+            # Group consecutive <mol> tokens into molecule sequences
+            mol_groups = []  # List of lists of positions for each molecule
+            current_group = [mol_positions[0].item()]
+            
+            for j in range(1, mol_positions.numel()):
+                pos = mol_positions[j].item()
+                prev_pos = mol_positions[j-1].item()
+                # Consecutive or nearly consecutive (allowing 0-2 tokens in between)
+                if pos - prev_pos <= 1:
+                    current_group.append(pos)
+                else:
+                    mol_groups.append(current_group)
+                    current_group = [pos]
+            mol_groups.append(current_group)
+            
+            num_molecules = len(mol_groups)
+            
+            # --- 1. Inject global queries to EVERY <mol> token (shared across all molecules) ---
+            x = text_embeds[i].clone()
+            if labels is not None:
+                l = labels[i].clone()
+            
+            if not local_q_only:
+                # Each <mol> token gets the SAME global queries (first num_global_tokens)
+                global_queries = q_i[:num_global_tokens]  # [num_global_tokens, D]
+                
+                for mol_idx, mol_group in enumerate(mol_groups):
+                    # Inject the same global queries to each <mol> in this molecule
+                    for idx_in_group, mol_pos in enumerate(mol_group):
+                        # Each <mol> position gets ONE global query token
+                        # Cycle through global queries if more <mol> tokens than global queries
+                        query_idx = idx_in_group % num_global_tokens
+                        x[mol_pos] = global_queries[query_idx]
+                        if labels is not None:
+                            l[mol_pos] = ignore_index
+            
+            # Mark all <mol> positions as ignore in labels
+            if labels is not None:
+                l[mol_positions] = ignore_index
+            
+            # --- 2. Insert remaining local queries ---
+            # For multi-molecule, insert remaining queries after the LAST <mol> token
+            # (Cannot reliably separate local queries by molecule since encoder aggregates them)
+            local_q = q_i[num_global_tokens:]
+            if local_q.numel() > 0:
+                insert_pos = mol_positions[-1].item() + 1
+                x = torch.cat([x[:insert_pos], local_q, x[insert_pos:]], dim=0)
+                if labels is not None:
+                    local_lbl = torch.full((local_q.size(0),), ignore_index, dtype=l.dtype, device=l.device)
+                    l = torch.cat([l[:insert_pos], local_lbl, l[insert_pos:]], dim=0)
+            
+            # --- 3. Generate attention mask ---
+            cur_len = x.size(0)
+            ones_len = cur_len - pad_left
+            cur_mask = torch.cat([
+                torch.zeros(pad_left, dtype=torch.long, device=x.device),
+                torch.ones(ones_len, dtype=torch.long, device=x.device)
+            ], dim=0)
+            
+            embeds_list.append(x)
+            mask_list.append(cur_mask)
+            if labels is not None:
+                label_list.append(l)
+            else:
+                label_list.append(None)
+            new_lengths.append(cur_len)
+
+        # --- 4. Pad/truncate to max length ---
+        max_len = min(max(new_lengths), max_pos)
+        padded_embeds, padded_mask, padded_labels = [], [], []
+
+        for emb, m, l in zip(embeds_list, mask_list, label_list):
+            emb = emb[:max_len]
+            m = m[:max_len]
+            if labels is not None:
+                l = l[:max_len]
+
+            if emb.size(0) < max_len:
+                pad_len = max_len - emb.size(0)
+                emb_pad = torch.zeros(pad_len, D, dtype=emb.dtype, device=emb.device)
+                m_pad = torch.zeros(pad_len, dtype=m.dtype, device=m.device)
+                if labels is not None:
+                    l_pad = torch.full((pad_len,), ignore_index, dtype=l.dtype, device=l.device)
+
+                emb = torch.cat([emb, emb_pad], dim=0)
+                m = torch.cat([m, m_pad], dim=0)
+                if labels is not None:
+                    l = torch.cat([l, l_pad], dim=0)
+
+            padded_embeds.append(emb)
+            padded_mask.append(m)
+            if labels is not None:
+                padded_labels.append(l)
+            else:
+                padded_labels.append(None)
+
+        text_embeds = torch.stack(padded_embeds, dim=0)
+        attention_mask = torch.stack(padded_mask, dim=0)
+        if labels is not None:
+            labels = torch.stack(padded_labels, dim=0)
+
+        return text_embeds, attention_mask, labels, max_len
+
     def inject_queries(
         self,
         query_output: torch.Tensor,          # [B, Q_total, D]
@@ -216,7 +402,28 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         labels: torch.Tensor,                # [B, L]  int  (可含 -100)
         max_pos: int,                        # llm.config.max_position_embeddings
         local_q_only: bool = False,          # 是否只使用 local Q
+        inner_cluster: torch.Tensor = None,  # For multi-molecule support
+        inner_cluster_batch: torch.Tensor = None,  # For multi-molecule support
+        num_global_tokens: int = None,       # For multi-molecule support
+        entropy_gids: torch.Tensor = None,   # For multi-molecule support
     ):
+        # Detect multi-molecule mode and dispatch to appropriate function
+        # if inner_cluster is not None and inner_cluster_batch is not None and num_global_tokens is not None:
+        #     return self.inject_queries_multi_molecule(
+        #         query_output=query_output,
+        #         text_embeds=text_embeds,
+        #         mol_token_flag=mol_token_flag,
+        #         attention_mask=attention_mask,
+        #         labels=labels,
+        #         max_pos=max_pos,
+        #         inner_cluster=inner_cluster,
+        #         inner_cluster_batch=inner_cluster_batch,
+        #         num_global_tokens=num_global_tokens,
+        #         local_q_only=local_q_only,
+        #         entropy_gids=entropy_gids,
+        #     )
+        
+        # Original single-molecule logic
         ignore_index = -100
         B, _, D = query_output.shape
         query_output = query_output.to(text_embeds.dtype)
@@ -307,6 +514,33 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
 
 
     def forward(self, graph_batch, text_batch):
+        # Support different modes:
+        # 1. LLM-only mode: no encoder at all (set via llm_only=True during init)
+        # 2. Text-only mode: encoder exists but no graph data provided
+        # 3. Molecule-text mode: graph data provided (single or multi-molecule)
+        
+        # Check if we're in LLM-only or text-only mode
+        is_text_only = (self.llm_only or 
+                        'unimol' not in graph_batch or 
+                        graph_batch is None or 
+                        (isinstance(graph_batch, dict) and len(graph_batch) == 0))
+        
+        if is_text_only:
+            # Text-only mode: no molecular encoder
+            inputs_embeds = self.llm.get_input_embeddings()(text_batch.input_ids)
+            attention_mask = text_batch.attention_mask
+            labels = text_batch.labels if hasattr(text_batch, 'labels') else None
+            
+            outputs = self.llm(
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                return_dict=True,
+                labels=labels,
+                use_cache=False,
+            )
+            return outputs
+        
+        # Process graph batch (single or multiple molecules)
         # brics_gids and entropy_gids are now in graph_batch
         # The encoder will extract them automatically
         _, _, query_output = self.encoder(graph_batch)
@@ -319,6 +553,14 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         else:
             labels = None
 
+        # Extract inner_cluster information for multi-molecule support
+        # inner_cluster is assigned during batching, before encoders (encoder-agnostic)
+        inner_cluster = graph_batch.get('inner_cluster', None)
+        inner_cluster_batch = graph_batch.get('inner_cluster_batch', None)
+        entropy_gids = graph_batch.get('entropy_gids', None)
+        num_global_tokens = self.num_query_tokens if inner_cluster is not None else None
+        
+
         inputs_embeds, attention_mask, labels, _ = self.inject_queries(
             query_output=query_output,
             text_embeds=inputs_embeds,
@@ -327,6 +569,10 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
             labels=labels,
             attention_mask=text_batch.attention_mask,
             local_q_only=self.local_q_only,
+            inner_cluster=inner_cluster,
+            inner_cluster_batch=inner_cluster_batch,
+            num_global_tokens=num_global_tokens,
+            entropy_gids=entropy_gids,
         )
 
         # Align dtypes (e.g. Half vs BFloat16) to avoid runtime errors when using quantized models
@@ -361,6 +607,39 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         pad_token_id=None,
         eos_token_id=None,
     ):
+        # Support different modes (same logic as forward())
+        # 1. LLM-only mode: no encoder at all (set via llm_only=True during init)
+        # 2. Text-only mode: encoder exists but no graph data provided
+        # 3. Molecule-text mode: graph data provided
+        
+        is_text_only = (self.llm_only or 
+                        'unimol' not in graph_batch or 
+                        graph_batch is None or 
+                        (isinstance(graph_batch, dict) and len(graph_batch) == 0))
+        
+        if is_text_only:
+            inputs_embeds = self.llm.get_input_embeddings()(text_batch.input_ids)
+            attention_mask = text_batch.attention_mask
+            
+            outputs = self.llm.generate(
+                inputs_embeds=inputs_embeds,
+                attention_mask=attention_mask,
+                do_sample=do_sample,
+                num_beams=num_beams,
+                max_length=max_length,
+                min_length=min_length,
+                max_new_tokens=max_new_tokens,
+                min_new_tokens=min_new_tokens,
+                pad_token_id=pad_token_id,
+                eos_token_id=eos_token_id,
+                repetition_penalty=repetition_penalty,
+                length_penalty=length_penalty,
+                num_return_sequences=num_return_sequences,
+                temperature=temperature,
+                top_p=top_p,
+            )
+            return outputs
+        
         # 1. 图→Query
         # brics_gids and entropy_gids are already in graph_batch, no need to pass separately
         _, _, query_output = self.encoder(graph_batch)
@@ -375,6 +654,12 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         else:
             labels = None
 
+        # Extract inner_cluster information for multi-molecule support
+        # inner_cluster is assigned during batching, before encoders (encoder-agnostic)
+        inner_cluster = graph_batch.get('inner_cluster', None)
+        inner_cluster_batch = graph_batch.get('inner_cluster_batch', None)
+        num_global_tokens = self.num_query_tokens if inner_cluster is not None else None
+
         inputs_embeds, attention_mask, _, _ = self.inject_queries(
             query_output=query_output,
             text_embeds=inputs_embeds,
@@ -383,6 +668,9 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
             labels=labels,               # 或 None，取决于你函数实现
             max_pos=self.llm.config.max_position_embeddings,
             local_q_only=self.local_q_only,
+            inner_cluster=inner_cluster,
+            inner_cluster_batch=inner_cluster_batch,
+            num_global_tokens=num_global_tokens,
         )
 
         # 4. 直接调 generate
@@ -426,6 +714,13 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         brics_gids=None,
         entropy_gids=None,
     ):
+        # This method requires encoder for molecule processing
+        if self.llm_only:
+            raise RuntimeError(
+                "generate_with_smiles() is not available in LLM-only mode. "
+                "Use generate() with text_batch for text-only generation."
+            )
+        
         graph_batch = get_mol_graphs(smiles_list, self.encoder.unimol_dictionary, self.device)
         outputs = self.generate(
             graph_batch=graph_batch,
@@ -456,6 +751,11 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         Args:
             ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
         """
+        # Skip checkpoint loading in LLM-only mode (no encoder to load)
+        if self.llm_only:
+            logger.info(f"⚠️  Skipping checkpoint loading in LLM-only mode (no encoder)")
+            return
+        
         logger.info(f"Loading encoder and projector from checkpoint: {ckpt_path}")
         
         path = Path(ckpt_path)
@@ -551,19 +851,30 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         # Extract relevant state dict with prefix removal
         state_dict = {k[prefix_len:]:v for k,v in state_dict_raw.items() if k.startswith(prefix)}
         
-        logger.info(f"Found {len(state_dict)} parameters to load")
+        # Filter out encoder keys in LLM-only mode
+        if self.llm_only:
+            logger.info(f"LLM-only mode: Filtering out encoder weights from checkpoint")
+            state_dict = {k:v for k,v in state_dict.items() 
+                         if not k.startswith("encoder.") and not k.startswith("llm_proj.")}
+            logger.info(f"Found {len(state_dict)} LLM parameters to load (encoder weights skipped)")
+        else:
+            logger.info(f"Found {len(state_dict)} parameters to load")
 
         missing_keys, unexpected_keys = self.load_state_dict(state_dict, strict=False)
 
         assert len(unexpected_keys) == 0, f"unexpected keys: {unexpected_keys}"
         for k in missing_keys:
             if 'position_ids' in k: continue
+            # In LLM-only mode, encoder keys are expected to be missing
+            if self.llm_only and (k.startswith("encoder.") or k.startswith("llm_proj.")):
+                continue
             if not (k.startswith("encoder.graph_encoder.") or k.startswith("llm.")) or k.startswith("encoder.static_q_mask"):
                 logger.warning(f"❌ Unexpected missing key: {k}")
             else:
                 logger.warning(f"Key: {k}, make sure this key is loaded before.")
             assert k.startswith("encoder.graph_encoder.") or \
-                k.startswith("llm.") or k.startswith("encoder.static_q_mask")
+                k.startswith("llm.") or k.startswith("encoder.static_q_mask") or \
+                (self.llm_only and (k.startswith("encoder.") or k.startswith("llm_proj.")))
         
         logger.info(f"✅ Successfully loaded weights from {ckpt_path}")
         
@@ -571,10 +882,16 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
     def load_from_stage1_ckpt(self, ckpt_path):
         """
         Load stage1 checkpoint from either PyTorch Lightning checkpoint or HuggingFace safetensors.
+        Only loads encoder weights (not applicable for LLM-only mode).
         
         Args:
             ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
         """
+        # Stage1 checkpoints only contain encoder weights - skip in LLM-only mode
+        if self.llm_only:
+            logger.warning(f"⚠️  Cannot load Stage1 checkpoint in LLM-only mode (Stage1 only contains encoder weights)")
+            return
+        
         logger.info(f"Loading from stage1 checkpoint: {ckpt_path}")
         
         path = Path(ckpt_path)
@@ -695,3 +1012,95 @@ def get_mol_graphs(smiles_list, dictionary, device):
             graph_batch[key] = graph_batch[key].to(device)
         
     return graph_batch
+
+
+def build_local_q_assignment(entropy_gids, inner_cluster, inner_cluster_batch):
+    """
+    根据 entropy_gids / inner_cluster / inner_cluster_batch 计算：
+    - 每个样本的 local_q 在全局 local_q 里的起止位置（slice）
+    - 每个样本内部：每个 local_q(=patch) 属于哪个 inner_cluster（段/分子）
+
+    Args:
+        entropy_gids: list of list, len = B
+            entropy_gids[b]: 长度 N_b，原子维度的 patch id（0..P_b-1）
+        inner_cluster: LongTensor [N_total_atoms]
+            每个原子的 inner_cluster id（在各自样本内从 0 开始）
+        inner_cluster_batch: LongTensor [N_total_atoms]
+            每个原子属于 batch 中哪一个样本（0..B-1）
+
+    Returns:
+        local_q_starts: list[int], len = B
+            local_q_starts[b] = 这个样本在 global local_q 里的起始偏移
+            第 b 个样本的 local_q index 范围为 [local_q_starts[b], local_q_starts[b] + num_patches_b)
+
+        local_q_cluster: list[LongTensor], len = B
+            local_q_cluster[b]: shape [num_patches_b]
+            第 k 个 local_q（样本内 index=k）对应的 inner_cluster id
+            对于全局 index:
+                global_idx = local_q_starts[b] + k
+                对应的段 = local_q_cluster[b][k]
+    """
+    import torch
+
+    B = len(entropy_gids)
+    device = inner_cluster.device
+    dtype = inner_cluster.dtype
+
+    local_q_starts = []
+    local_q_cluster = []
+
+    offset = 0  # 全局 local_q 的偏移
+
+    # 把 inner_cluster 和 batch 展开方便按样本切片
+    inner_cluster = inner_cluster.to(device)
+    inner_cluster_batch = inner_cluster_batch.to(device)
+
+    for b in range(B):
+        gids_b = entropy_gids[b]  # list[int], len N_b（原子数）
+        if len(gids_b) == 0:
+            # 这个样本没有原子 / 没有 local patch
+            local_q_starts.append(offset)
+            local_q_cluster.append(torch.empty(0, dtype=dtype, device=device))
+            continue
+
+        gids_b_tensor = torch.tensor(gids_b, device=device, dtype=torch.long)
+
+        # 当前样本对应的原子在 inner_cluster 里的切片
+        atom_mask_b = (inner_cluster_batch == b)
+        clusters_b = inner_cluster[atom_mask_b]  # [N_b]
+        assert clusters_b.numel() == gids_b_tensor.numel(), \
+            f"Batch {b}: entropy_gids 长度 {gids_b_tensor.numel()} 与 inner_cluster_batch 中该样本原子数 {clusters_b.numel()} 不一致"
+
+        # 这个样本有多少个 patch（local_q 数量）
+        # 一般 gids 是 0..P_b-1 连续，这里用 unique 保险一点
+        patch_ids = torch.unique(gids_b_tensor).tolist()
+        patch_ids = sorted(patch_ids)
+        num_patches_b = len(patch_ids)
+
+        local_q_starts.append(offset)
+
+        # 每个 patch -> 一个 inner_cluster（哪一段 / 哪个分子）
+        cluster_per_patch = []
+
+        for p in patch_ids:
+            mask_p = (gids_b_tensor == p)       # 这个 patch 下的原子
+            patch_clusters = clusters_b[mask_p] # 它们对应的 inner_cluster id
+
+            # 理论上一个 patch 只属于一个 inner_cluster（单个分子的一段）
+            uniq = torch.unique(patch_clusters)
+            if uniq.numel() != 1:
+                # 如果跨段了，说明数据有点问题，这里给个 assert / 或者可以改成 majority vote
+                raise ValueError(
+                    f"Batch {b}, patch {p} 跨越了多个 inner_cluster: {uniq.tolist()}"
+                )
+
+            cluster_per_patch.append(uniq.item())
+
+        local_q_cluster.append(
+            torch.tensor(cluster_per_patch, dtype=dtype, device=device)
+        )
+
+        # 下一个样本的 local_q 起点：累加 patch 数
+        offset += num_patches_b
+
+    return local_q_starts, local_q_cluster

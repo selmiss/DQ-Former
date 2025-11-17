@@ -1,4 +1,6 @@
 # Defined ignore files
+
+slurm*
 envs/
 local.env.sh
 /pampa/
