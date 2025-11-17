@@ -16,7 +16,7 @@ else
 fi
 
 # Configuration
-export GPUs="0,1"  # GPU IDs to use for Molecule Generation training
+export GPUs="0"  # GPU IDs to use for Molecule Generation training
 export MASTER_PORT=29502  # Master port for distributed training
 
 # Set CUDA architecture to avoid compilation warnings

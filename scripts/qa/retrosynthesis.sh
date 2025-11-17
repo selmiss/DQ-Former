@@ -17,7 +17,7 @@ fi
 
 # Configuration
 export GPUs="0"  # GPU IDs to use for retrosynthesis training
-export MASTER_PORT=29501  # Master port for distributed training
+export MASTER_PORT=29503  # Master port for distributed training
 
 # Set CUDA architecture to avoid compilation warnings
 # Common options: "7.0" (V100), "8.0" (A100), "8.6" (RTX 3090), "8.9" (RTX 4090), "9.0" (H100)
