@@ -32,3 +32,4 @@ dependencies:
       - ml_collections
       - scikit-learn
       - Levenshtein
+      - bert_score
