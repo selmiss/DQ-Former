@@ -136,15 +136,16 @@ class MoleculeQATrainer(Trainer):
         ids = list(dict.fromkeys(ids))
         return ids if len(ids) > 0 else None
 
-    def load_from_ckpt(self, ckpt_path):
+    def load_from_ckpt(self, ckpt_path, lora_init=False):
         """
         Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors.
         
         Args:
             ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
+            lora_init: Whether to initialize LoRA when loading checkpoint (used for mol-llama baseline)
         """
         if hasattr(self.model, 'load_from_ckpt'):
-            self.model.load_from_ckpt(ckpt_path)
+            self.model.load_from_ckpt(ckpt_path, lora_init=lora_init)
         else:
             # Load checkpoint manually
             path = Path(ckpt_path)
@@ -534,15 +535,16 @@ class MoleculeGENQATrainer(Trainer):
         """Access tokenizer via processing_class to avoid deprecation warning."""
         return self.processing_class
 
-    def load_from_ckpt(self, ckpt_path):
+    def load_from_ckpt(self, ckpt_path, lora_init=False):
         """
         Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors.
         
         Args:
             ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
+            lora_init: Whether to initialize LoRA when loading checkpoint (used for mol-llama baseline)
         """
         if hasattr(self.model, 'load_from_ckpt'):
-            self.model.load_from_ckpt(ckpt_path)
+            self.model.load_from_ckpt(ckpt_path, lora_init=lora_init)
         else:
             path = Path(ckpt_path)
             if path.suffix == '.safetensors':
@@ -874,15 +876,16 @@ class MoleculePropertyQATrainer(Trainer):
         """Access tokenizer via processing_class to avoid deprecation warning."""
         return self.processing_class
 
-    def load_from_ckpt(self, ckpt_path):
+    def load_from_ckpt(self, ckpt_path, lora_init=False):
         """
         Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors.
         
         Args:
             ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
+            lora_init: Whether to initialize LoRA when loading checkpoint (used for mol-llama baseline)
         """
         if hasattr(self.model, 'load_from_ckpt'):
-            self.model.load_from_ckpt(ckpt_path)
+            self.model.load_from_ckpt(ckpt_path, lora_init=lora_init)
         else:
             path = Path(ckpt_path)
             if path.suffix == '.safetensors':
@@ -1212,10 +1215,10 @@ class MoleculeReactionTrainer(Trainer):
         """Access tokenizer via processing_class to avoid deprecation warning."""
         return self.processing_class
 
-    def load_from_ckpt(self, ckpt_path):
+    def load_from_ckpt(self, ckpt_path, lora_init=False):
         """Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors."""
         if hasattr(self.model, 'load_from_ckpt'):
-            self.model.load_from_ckpt(ckpt_path)
+            self.model.load_from_ckpt(ckpt_path, lora_init=lora_init)
         else:
             path = Path(ckpt_path)
             if path.suffix == '.safetensors':

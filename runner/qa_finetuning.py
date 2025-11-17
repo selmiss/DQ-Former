@@ -97,26 +97,56 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     tokenizer.add_special_tokens({"additional_special_tokens": ["<mol>"]})
     tokenizer.mol_token_id = tokenizer("<mol>", add_special_tokens=False).input_ids[0]
 
-    # Create model config from parsed arguments
-    model_config = MolLLaMAConfig(
-        qformer_config={
-            "use_flash_attention": model_args.use_flash_attention,
-            "use_dq_encoder": model_args.use_dq_encoder,
-            "num_query_tokens": model_args.num_query_tokens,
-            "embed_dim": model_args.embed_dim,
-            "cross_attention_freq": model_args.cross_attention_freq,
-            "enable_lora": model_args.enable_lora_qformer,
-        },
-        graph_encoder_config={"local_q_only": model_args.local_q_only},
-        blending_module_config={
-            "num_layers": model_args.num_layers,
-            "num_heads": model_args.num_heads,
-            "enable_blending": model_args.enable_blending,
-        },
-    )
+    # Check if using mol-llama baseline
+    baseline_type = getattr(model_args, 'baseline_type', None)
+    use_mollama_baseline = (baseline_type == 'mollama')
     
-    if model_args.llm_backbone is not None:
-        model_config.llm_config.llm_model = model_args.llm_backbone
+    # Create model config from parsed arguments
+    if use_mollama_baseline:
+        # Mol-LLaMA baseline: use config similar to inference.py
+        logger.info("Using Mol-LLaMA baseline model configuration")
+        llm_model_path = model_args.llm_backbone if model_args.llm_backbone is not None else "DongkiKim/Mol-Llama-3.1-8B-Instruct"
+        model_config = MolLLaMAConfig(
+            llm_config={'llm_model': llm_model_path},
+            qformer_config={
+                'use_dq_encoder': model_args.use_dq_encoder,
+                'use_flash_attention': True,
+                'num_query_tokens': model_args.num_query_tokens,
+                'embed_dim': model_args.embed_dim,
+                'cross_attention_freq': model_args.cross_attention_freq,
+                'max_local_query': 0,
+            },
+            graph_encoder_config={
+                'encoder_types': ['unimol', 'moleculestm'] if model_args.enable_blending else ['unimol']
+            },
+            blending_module_config={
+                'enable_blending': model_args.enable_blending,
+                'num_layers': model_args.num_layers,
+                'num_heads': model_args.num_heads
+            },
+            torch_dtype="float16"
+        )
+    else:
+        # Default DQ-Former configuration
+        model_config = MolLLaMAConfig(
+            qformer_config={
+                "use_flash_attention": model_args.use_flash_attention,
+                "use_dq_encoder": model_args.use_dq_encoder,
+                "num_query_tokens": model_args.num_query_tokens,
+                "embed_dim": model_args.embed_dim,
+                "cross_attention_freq": model_args.cross_attention_freq,
+                "enable_lora": model_args.enable_lora_qformer,
+            },
+            graph_encoder_config={"local_q_only": model_args.local_q_only},
+            blending_module_config={
+                "num_layers": model_args.num_layers,
+                "num_heads": model_args.num_heads,
+                "enable_blending": model_args.enable_blending,
+            },
+        )
+        
+        if model_args.llm_backbone is not None:
+            model_config.llm_config.llm_model = model_args.llm_backbone
 
     # Determine torch dtype from training_args
     if training_args.bf16:
@@ -297,6 +327,14 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     
     # Initialize Trainer with task-specific config and actual datasets
     from easydict import EasyDict
+    # For mol-llama baseline, disable brics_gids and entropy_gids (as in inference.py)
+    if use_mollama_baseline:
+        brics_gids_enable = False
+        entropy_gids_enable = False
+    else:
+        brics_gids_enable = model_args.brics_gids_enable
+        entropy_gids_enable = model_args.entropy_gids_enable
+    
     train_config = EasyDict({
         'init_lr': training_args.learning_rate,
         'weight_decay': training_args.weight_decay,
@@ -308,8 +346,8 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         'precision': 'bf16-mixed' if training_args.bf16 else ('fp16' if training_args.fp16 else 'fp32'),
         'enable_flash': model_args.enable_flash,
         'freeze_llm': model_args.freeze_llm,
-        'brics_gids_enable': model_args.brics_gids_enable,
-        'entropy_gids_enable': model_args.entropy_gids_enable,
+        'brics_gids_enable': brics_gids_enable,
+        'entropy_gids_enable': entropy_gids_enable,
         'enable_blending': model_args.enable_blending,
         'zero_shot': model_args.zero_shot,
         'load_ckpt_before_peft': model_args.load_ckpt_before_peft,
@@ -338,8 +376,24 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     load_ckpt_before_peft = model_args.load_ckpt_before_peft
     logger.info(f"🔍 load_ckpt_before_peft = {load_ckpt_before_peft}")
     logger.info(f"🔍 model_name_or_path = {model_args.model_name_or_path}")
+    logger.info(f"🔍 baseline_type = {baseline_type}")
     
-    if model_args.model_name_or_path and not load_ckpt_before_peft:
+    # Determine checkpoint path: prioritize lora_path for mol-llama baseline, otherwise use model_name_or_path
+    ckpt_path = None
+    if use_mollama_baseline:
+        ckpt_path = getattr(model_args, 'lora_path', None) or model_args.model_name_or_path
+        if ckpt_path:
+            logger.info(f"Loading Mol-LLaMA baseline checkpoint: {ckpt_path}")
+            lora_init = getattr(model_args, 'lora_init', False)
+            trainer.load_from_ckpt(ckpt_path, lora_init=lora_init)
+        elif model_args.zero_shot:
+            raise ValueError(
+                "Zero-shot mode requires a pretrained checkpoint! "
+                "Please provide lora_path or model_name_or_path in your model config."
+            )
+        else:
+            logger.warning("⚠️  No checkpoint provided for mol-llama baseline - using randomly initialized weights")
+    elif model_args.model_name_or_path and not load_ckpt_before_peft:
         logger.info(f"Loading from pretrained checkpoint: {model_args.model_name_or_path}")
         trainer.load_from_ckpt(model_args.model_name_or_path)
     elif model_args.model_name_or_path and load_ckpt_before_peft:

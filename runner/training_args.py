@@ -198,6 +198,20 @@ class ModelArguments:
         default=False,
         metadata={"help": "LLM-only mode: Skip encoder initialization entirely for text-only tasks (saves ~20-25 GB GPU memory)."}
     )
+    
+    # Baseline model support
+    baseline_type: Optional[str] = field(
+        default=None,
+        metadata={"help": "Baseline model type: 'mollama' (Mol-LLaMA baseline), 'llm_lora' (LLM with LoRA), 'llm_only' (LLM only), or None (default DQ-Former)."}
+    )
+    lora_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to Mol-LLaMA checkpoint (used when baseline_type='mollama')."}
+    )
+    lora_init: bool = field(
+        default=False,
+        metadata={"help": "Whether to initialize LoRA when loading Mol-LLaMA checkpoint (used when baseline_type='mollama')."}
+    )
 
 
 def parse_args_from_yaml(
