@@ -14,7 +14,6 @@ class ZeroshotDataset(Dataset):
     def __init__(self, data_dir, split, prompt_type, 
                 unimol_dictionary, only_llm=False, meta_filename=None, jsonl_filename=None, lazy_jsonl=True):
         super().__init__()
-        assert prompt_type in ['default', 'rationale', 'task_info'], "prompt_type must be one of ['default', 'rationale', 'task_info']"
 
         # New format only: input is a directory containing a metadata JSON and a data JSONL
         self.only_llm = only_llm
