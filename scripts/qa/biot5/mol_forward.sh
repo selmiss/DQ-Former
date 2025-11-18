@@ -1,6 +1,6 @@
 #!/bin/bash
 # Forward Reaction Prediction Finetuning Training Script
-# 4hours to train 5 epochs
+# 40min to train 5 epochs
 # Source environment setup
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -45,12 +45,12 @@ echo "DeepSpeed Stage: $DEEPSPEED_STAGE"
 echo "=========================================="
 
 # Launch training with DeepSpeed
-# deepspeed --master_port ${MASTER_PORT} --include localhost:${GPUs} \
-CUDA_VISIBLE_DEVICES=0 python ${BASE_DIR}/runner/qa_finetuning.py \
-    --model_config_path ${BASE_DIR}/configs/qa/mol-llama/mol_forward/model_config.yaml \
-    --training_config_path ${BASE_DIR}/configs/qa/mol-llama/mol_forward/training_config.yaml \
-    --data_config_path ${BASE_DIR}/configs/qa/mol-llama/mol_forward/data_config_preprocessed.yaml
-    # --deepspeed_stage ${DEEPSPEED_STAGE}
+deepspeed --master_port ${MASTER_PORT} --include localhost:${GPUs} \
+    ${BASE_DIR}/runner/qa_finetuning.py \
+    --model_config_path ${BASE_DIR}/configs/qa/biot5/mol_forward/model_config.yaml \
+    --training_config_path ${BASE_DIR}/configs/qa/biot5/mol_forward/training_config.yaml \
+    --data_config_path ${BASE_DIR}/configs/qa/biot5/mol_forward/data_config_preprocessed.yaml \
+    --deepspeed_stage ${DEEPSPEED_STAGE}
 
 echo "=========================================="
 echo "Training completed!"

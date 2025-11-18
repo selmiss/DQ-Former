@@ -263,7 +263,6 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
             inner_cluster_batch: Batch tracking info (used during encoding, not injection)
             num_global_tokens: number of global query tokens (e.g., 8 or 32)
         """
-        import ipdb; ipdb.set_trace()
         ignore_index = -100
         B, _, D = query_output.shape
         query_output = query_output.to(text_embeds.dtype)
@@ -816,13 +815,17 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         path = Path(ckpt_path)
 
         if lora_init:
-            peft_config = LoraConfig(task_type=TaskType.CAUSAL_LM,
-                                        inference_mode=False,
-                                        r=self.config.llm_config.lora_config.r,
-                                        lora_alpha=self.config.llm_config.lora_config.lora_alpha,
-                                        lora_dropout=self.config.llm_config.lora_config.lora_dropout,
-                                        target_modules=['k_proj', 'v_proj', 'q_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'])
-            self.llm = get_peft_model(self.llm, peft_config)
+            # Check if PEFT is already applied to avoid double wrapping
+            if hasattr(self.llm, 'peft_config'):
+                logger.warning("⚠️  PEFT is already applied to the model. Skipping lora_init to avoid double PEFT wrapping.")
+            else:
+                peft_config = LoraConfig(task_type=TaskType.CAUSAL_LM,
+                                            inference_mode=False,
+                                            r=self.config.llm_config.lora_config.r,
+                                            lora_alpha=self.config.llm_config.lora_config.lora_alpha,
+                                            lora_dropout=self.config.llm_config.lora_config.lora_dropout,
+                                            target_modules=['k_proj', 'v_proj', 'q_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'])
+                self.llm = get_peft_model(self.llm, peft_config)
         
         # Detect file type and load accordingly
         if path.suffix == '.safetensors':
@@ -863,6 +866,7 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         missing_keys, unexpected_keys = self.load_state_dict(state_dict, strict=False)
 
         assert len(unexpected_keys) == 0, f"unexpected keys: {unexpected_keys}"
+
         for k in missing_keys:
             if 'position_ids' in k: continue
             # In LLM-only mode, encoder keys are expected to be missing

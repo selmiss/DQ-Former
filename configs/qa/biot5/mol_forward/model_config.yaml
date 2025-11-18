@@ -2,14 +2,12 @@
 # These parameters define the model architecture
 
 # Pretrained checkpoint path (Stage 2 checkpoint for MoleculeQA training)
-model_name_or_path: unsloth/Llama-3.1-8B-Instruct # Automatically loads Stage 2 full model checkpoint
+model_name_or_path: QizhiPei/biot5-base # Automatically loads Stage 2 full model checkpoint
 
-baseline_type: mollama
-lora_path: ../hf_cache/hub/models--DongkiKim--Mol-Llama-3.1-8B-Instruct/snapshots/dd99e6ea328e01d713ac31aaad017074a6126483/model.safetensors
-lora_init: True
+baseline_type: llm_only
 # QFormer Configuration
 use_flash_attention: True
-use_dq_encoder: False
+use_dq_encoder: True
 num_query_tokens: 32
 embed_dim: 512
 cross_attention_freq: 1
@@ -24,8 +22,9 @@ num_heads: 8
 
 # LLM Configuration
 llm_backbone: null  # Optional: override default LLM model (e.g., "meta-llama/Meta-Llama-3-8B")
-freeze_llm: True  # For forward reaction finetuning, we typically don't freeze LLM
+freeze_llm: False  # For forward reaction finetuning, we typically don't freeze LLM
 enable_lora_qformer: False
+llm_only: True
 
 # Training-specific model settings
 tune_gnn: False

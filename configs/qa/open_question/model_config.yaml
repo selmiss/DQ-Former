@@ -3,14 +3,11 @@
 # NOTE: This task uses TEXT input (no graph encoder needed)
 
 # Pretrained checkpoint path (Stage 2 checkpoint for molecule design training)
-model_name_or_path: unsloth/Llama-3.1-8B-Instruct # Automatically loads Stage 2 full model checkpoint
+model_name_or_path: checkpoints/edt_former_s2_large/final_model/model.safetensors # Automatically loads Stage 2 full model checkpoint
 
-baseline_type: mollama
-lora_path: ../hf_cache/hub/models--DongkiKim--Mol-Llama-3.1-8B-Instruct/snapshots/dd99e6ea328e01d713ac31aaad017074a6126483/model.safetensors
-lora_init: False
 # QFormer Configuration
 use_flash_attention: True
-use_dq_encoder: False
+use_dq_encoder: True  # No graph encoder for text-to-molecule task
 num_query_tokens: 32
 embed_dim: 512
 cross_attention_freq: 1

@@ -10,6 +10,7 @@ from torch import optim, nn
 from transformers import (
     BertTokenizerFast, 
     AutoModelForCausalLM,
+    T5ForConditionalGeneration,
     Trainer,
     get_cosine_schedule_with_warmup,
 )
@@ -28,6 +29,7 @@ from Levenshtein import distance as levenshtein_distance
 from rdkit import Chem
 from rdkit.Chem import AllChem, MACCSkeys
 from rdkit import DataStructs
+from bert_score import score as bert_score
 
 logger = logging.get_logger(__name__)
 
@@ -48,50 +50,89 @@ class MoleculeQATrainer(Trainer):
         self.use_dq_encoder = use_dq_encoder
         logger.info(f"use_dq_encoder: {use_dq_encoder}")
 
-        if train_config.get('llm_baseline', False):
+        if train_config.get('llm_only', False):
             # LLM baseline - only use language model without molecular encoders
             logger.info("Using LLM baseline: ", train_config.llm_model_path)
-            # Use AutoModelForCausalLM to support Gemma, Qwen, Mistral, LLaMA, etc.
-            if train_config.enable_flash:
-                try:
-                    model = AutoModelForCausalLM.from_pretrained(
-                        train_config.llm_model_path,
-                        torch_dtype=torch_dtype,
-                        attn_implementation="flash_attention_2",
-                    )
-                    logger.info("Using flash attention for LLM baseline")
-                except TypeError:
-                    # Some architectures may not accept attn_implementation
-                    model = AutoModelForCausalLM.from_pretrained(
-                        train_config.llm_model_path,
-                        torch_dtype=torch_dtype,
-                    )
-            else:
-                model = AutoModelForCausalLM.from_pretrained(
+            
+            # Check if using T5 model (encoder-decoder architecture) by inspecting model config
+            use_t5 = False
+            try:
+                from transformers import AutoConfig
+                model_cfg = AutoConfig.from_pretrained(train_config.llm_model_path)
+                if hasattr(model_cfg, 'architectures') and model_cfg.architectures:
+                    use_t5 = any('T5ForConditionalGeneration' in arch for arch in model_cfg.architectures)
+                    logger.info(f"Model architectures: {model_cfg.architectures}")
+            except Exception as e:
+                logger.warning(f"Could not load model config, falling back to path-based detection: {e}")
+                use_t5 = getattr(train_config, 'use_t5', False) or 't5' in str(train_config.llm_model_path).lower()
+            
+            if use_t5:
+                # T5 is a seq2seq model
+                logger.info("Detected T5 model - using T5ForConditionalGeneration")
+                model = T5ForConditionalGeneration.from_pretrained(
                     train_config.llm_model_path,
                     torch_dtype=torch_dtype,
                 )
-            
-            model.resize_token_embeddings(vocab_size)
-            
-            # Apply LoRA if not freezing LLM
-            if not getattr(train_config, 'freeze_llm', False):
-                peft_config = LoraConfig(
-                    task_type=TaskType.CAUSAL_LM,
-                    inference_mode=False,
-                    r=model_config.llm_config.lora_config.r,
-                    lora_alpha=model_config.llm_config.lora_config.lora_alpha,
-                    lora_dropout=model_config.llm_config.lora_config.lora_dropout,
-                    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
-                )
-                model = get_peft_model(model, peft_config)
-                logger.info("Applied LoRA to LLM baseline")
+                model.resize_token_embeddings(vocab_size)
+                
+                # Apply LoRA if not freezing LLM
+                if not getattr(train_config, 'freeze_llm', False):
+                    peft_config = LoraConfig(
+                        task_type=TaskType.SEQ_2_SEQ_LM,
+                        inference_mode=False,
+                        r=model_config.llm_config.lora_config.r,
+                        lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                        lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                        target_modules=["q", "v"]  # T5 uses different attention module names
+                    )
+                    model = get_peft_model(model, peft_config)
+                    logger.info("Applied LoRA to T5 baseline")
+                
+                self.is_t5_baseline = True
+            else:
+                # Use AutoModelForCausalLM to support Gemma, Qwen, Mistral, LLaMA, etc.
+                if train_config.enable_flash:
+                    try:
+                        model = AutoModelForCausalLM.from_pretrained(
+                            train_config.llm_model_path,
+                            torch_dtype=torch_dtype,
+                            attn_implementation="flash_attention_2",
+                        )
+                        logger.info("Using flash attention for LLM baseline")
+                    except TypeError:
+                        # Some architectures may not accept attn_implementation
+                        model = AutoModelForCausalLM.from_pretrained(
+                            train_config.llm_model_path,
+                            torch_dtype=torch_dtype,
+                        )
+                else:
+                    model = AutoModelForCausalLM.from_pretrained(
+                        train_config.llm_model_path,
+                        torch_dtype=torch_dtype,
+                    )
+                
+                model.resize_token_embeddings(vocab_size)
+                
+                # Apply LoRA if not freezing LLM
+                if not getattr(train_config, 'freeze_llm', False):
+                    peft_config = LoraConfig(
+                        task_type=TaskType.CAUSAL_LM,
+                        inference_mode=False,
+                        r=model_config.llm_config.lora_config.r,
+                        lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                        lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+                    )
+                    model = get_peft_model(model, peft_config)
+                    logger.info("Applied LoRA to LLM baseline")
+                
+                self.is_t5_baseline = False
             
             self.is_llm_baseline = True
         else:
             # Use DQ encoder (default molecular encoder)
             self.is_llm_baseline = False
-            if hasattr(train_config, 'llm_model_path'):
+            if hasattr(train_config, 'llm_model_path') and train_config.llm_model_path is not None:
                 model_config.llm_config.llm_model = train_config.llm_model_path
             model = DQMolLLaMA(
                 config=model_config,
@@ -201,11 +242,20 @@ class MoleculeQATrainer(Trainer):
         
         if self.is_llm_baseline:
             # For LLM baseline, only use text_batch for forward pass
-            output = model(
-                input_ids=text_batch.input_ids,
-                attention_mask=text_batch.attention_mask,
-                labels=text_batch.input_ids
-            )
+            if getattr(self, 'is_t5_baseline', False):
+                # T5 is encoder-decoder, needs labels to be prepared
+                output = model(
+                    input_ids=text_batch.input_ids,
+                    attention_mask=text_batch.attention_mask,
+                    labels=text_batch.input_ids
+                )
+            else:
+                # Causal LM
+                output = model(
+                    input_ids=text_batch.input_ids,
+                    attention_mask=text_batch.attention_mask,
+                    labels=text_batch.input_ids
+                )
             loss = output.loss
         else:
             # Standard molecular + text training
@@ -238,18 +288,29 @@ class MoleculeQATrainer(Trainer):
         with torch.no_grad():
             if self.is_llm_baseline:
                 # For LLM baseline, only use text for generation
-                eos_ids = self._get_eos_token_ids()
-                gen_kwargs = {
-                    'input_ids': text_batch.input_ids,
-                    'attention_mask': text_batch.attention_mask,
-                    'pad_token_id': self.tokenizer.pad_token_id,
-                    'max_new_tokens': 512,
-                    'do_sample': True,
-                    'temperature': 0.7,
-                }
-                if eos_ids is not None:
-                    gen_kwargs['eos_token_id'] = eos_ids
-                responses = model.generate(**gen_kwargs)
+                if getattr(self, 'is_t5_baseline', False):
+                    # T5 generation
+                    responses = model.generate(
+                        input_ids=text_batch.input_ids,
+                        attention_mask=text_batch.attention_mask,
+                        max_length=512,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                        eos_token_id=self.tokenizer.eos_token_id,
+                    )
+                else:
+                    # Causal LM generation
+                    eos_ids = self._get_eos_token_ids()
+                    gen_kwargs = {
+                        'input_ids': text_batch.input_ids,
+                        'attention_mask': text_batch.attention_mask,
+                        'pad_token_id': self.tokenizer.pad_token_id,
+                        'max_new_tokens': 512,
+                        'do_sample': True,
+                        'temperature': 0.7,
+                    }
+                    if eos_ids is not None:
+                        gen_kwargs['eos_token_id'] = eos_ids
+                    responses = model.generate(**gen_kwargs)
             else:
                 # Standard molecular + text generation
                 responses = model.generate(
@@ -473,43 +534,83 @@ class MoleculeGENQATrainer(Trainer):
         self.use_dq_encoder = use_dq_encoder
         logger.info(f"use_dq_encoder: {use_dq_encoder}")
 
-        if train_config.get('llm_baseline', False):
+        if train_config.get('llm_only', False):
             logger.info("Using LLM baseline: ", train_config.llm_model_path)
-            if train_config.enable_flash:
-                try:
-                    model = AutoModelForCausalLM.from_pretrained(
-                        train_config.llm_model_path,
-                        torch_dtype=torch_dtype,
-                        attn_implementation="flash_attention_2",
-                    )
-                    logger.info("Using flash attention for LLM baseline")
-                except TypeError:
-                    model = AutoModelForCausalLM.from_pretrained(
-                        train_config.llm_model_path,
-                        torch_dtype=torch_dtype,
-                    )
-            else:
-                model = AutoModelForCausalLM.from_pretrained(
+            
+            # Check if using T5 model (encoder-decoder architecture) by inspecting model config
+            use_t5 = False
+            try:
+                from transformers import AutoConfig
+                model_cfg = AutoConfig.from_pretrained(train_config.llm_model_path)
+                if hasattr(model_cfg, 'architectures') and model_cfg.architectures:
+                    use_t5 = any('T5ForConditionalGeneration' in arch for arch in model_cfg.architectures)
+                    logger.info(f"Model architectures: {model_cfg.architectures}")
+            except Exception as e:
+                logger.warning(f"Could not load model config, falling back to path-based detection: {e}")
+                use_t5 = getattr(train_config, 'use_t5', False) or 't5' in str(train_config.llm_model_path).lower()
+            
+            if use_t5:
+                # T5 is a seq2seq model
+                logger.info("Detected T5 model - using T5ForConditionalGeneration")
+                model = T5ForConditionalGeneration.from_pretrained(
                     train_config.llm_model_path,
                     torch_dtype=torch_dtype,
                 )
-            model.resize_token_embeddings(vocab_size)
-            if not getattr(train_config, 'freeze_llm', False):
-                peft_config = LoraConfig(
-                    task_type=TaskType.CAUSAL_LM,
-                    inference_mode=False,
-                    r=model_config.llm_config.lora_config.r,
-                    lora_alpha=model_config.llm_config.lora_config.lora_alpha,
-                    lora_dropout=model_config.llm_config.lora_config.lora_dropout,
-                    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
-                )
-                model = get_peft_model(model, peft_config)
-                logger.info("Applied LoRA to LLM baseline")
+                model.resize_token_embeddings(vocab_size)
+                
+                # Apply LoRA if not freezing LLM
+                if not getattr(train_config, 'freeze_llm', False):
+                    peft_config = LoraConfig(
+                        task_type=TaskType.SEQ_2_SEQ_LM,
+                        inference_mode=False,
+                        r=model_config.llm_config.lora_config.r,
+                        lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                        lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                        target_modules=["q", "v"]  # T5 uses different attention module names
+                    )
+                    model = get_peft_model(model, peft_config)
+                    logger.info("Applied LoRA to T5 baseline")
+                
+                self.is_t5_baseline = True
+            else:
+                if train_config.enable_flash:
+                    try:
+                        model = AutoModelForCausalLM.from_pretrained(
+                            train_config.llm_model_path,
+                            torch_dtype=torch_dtype,
+                            attn_implementation="flash_attention_2",
+                        )
+                        logger.info("Using flash attention for LLM baseline")
+                    except TypeError:
+                        model = AutoModelForCausalLM.from_pretrained(
+                            train_config.llm_model_path,
+                            torch_dtype=torch_dtype,
+                        )
+                else:
+                    model = AutoModelForCausalLM.from_pretrained(
+                        train_config.llm_model_path,
+                        torch_dtype=torch_dtype,
+                    )
+                model.resize_token_embeddings(vocab_size)
+                if not getattr(train_config, 'freeze_llm', False):
+                    peft_config = LoraConfig(
+                        task_type=TaskType.CAUSAL_LM,
+                        inference_mode=False,
+                        r=model_config.llm_config.lora_config.r,
+                        lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                        lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+                    )
+                    model = get_peft_model(model, peft_config)
+                    logger.info("Applied LoRA to LLM baseline")
+                
+                self.is_t5_baseline = False
+            
             self.is_llm_baseline = True
         else:
             # Use DQ encoder (default molecular encoder)
             self.is_llm_baseline = False
-            if hasattr(train_config, 'llm_model_path'):
+            if hasattr(train_config, 'llm_model_path') and train_config.llm_model_path is not None:
                 model_config.llm_config.llm_model = train_config.llm_model_path
             model = DQMolLLaMA(
                 config=model_config,
@@ -620,18 +721,29 @@ class MoleculeGENQATrainer(Trainer):
         
         with torch.no_grad():
             if getattr(self, 'is_llm_baseline', False):
-                eos_ids = self._get_eos_token_ids()
-                gen_kwargs = {
-                    'input_ids': text_batch.input_ids,
-                    'attention_mask': text_batch.attention_mask,
-                    'pad_token_id': self.tokenizer.pad_token_id,
-                    'max_new_tokens': 512,
-                    'do_sample': True,
-                    'temperature': 0.7,
-                }
-                if eos_ids is not None:
-                    gen_kwargs['eos_token_id'] = eos_ids
-                responses = model.generate(**gen_kwargs)
+                if getattr(self, 'is_t5_baseline', False):
+                    # T5 generation
+                    responses = model.generate(
+                        input_ids=text_batch.input_ids,
+                        attention_mask=text_batch.attention_mask,
+                        max_length=512,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                        eos_token_id=self.tokenizer.eos_token_id,
+                    )
+                else:
+                    # Causal LM generation
+                    eos_ids = self._get_eos_token_ids()
+                    gen_kwargs = {
+                        'input_ids': text_batch.input_ids,
+                        'attention_mask': text_batch.attention_mask,
+                        'pad_token_id': self.tokenizer.pad_token_id,
+                        'max_new_tokens': 512,
+                        'do_sample': True,
+                        'temperature': 0.7,
+                    }
+                    if eos_ids is not None:
+                        gen_kwargs['eos_token_id'] = eos_ids
+                    responses = model.generate(**gen_kwargs)
             else:
                 responses = model.generate(
                     graph_batch,
@@ -814,43 +926,83 @@ class MoleculePropertyQATrainer(Trainer):
         self.use_dq_encoder = use_dq_encoder
         logger.info(f"use_dq_encoder: {use_dq_encoder}")
 
-        if train_config.get('llm_baseline', False):
+        if train_config.get('llm_only', False):
             logger.info("Using LLM baseline: ", train_config.llm_model_path)
-            if train_config.enable_flash:
-                try:
-                    model = AutoModelForCausalLM.from_pretrained(
-                        train_config.llm_model_path,
-                        torch_dtype=torch_dtype,
-                        attn_implementation="flash_attention_2",
-                    )
-                    logger.info("Using flash attention for LLM baseline")
-                except TypeError:
-                    model = AutoModelForCausalLM.from_pretrained(
-                        train_config.llm_model_path,
-                        torch_dtype=torch_dtype,
-                    )
-            else:
-                model = AutoModelForCausalLM.from_pretrained(
+            
+            # Check if using T5 model (encoder-decoder architecture) by inspecting model config
+            use_t5 = False
+            try:
+                from transformers import AutoConfig
+                model_cfg = AutoConfig.from_pretrained(train_config.llm_model_path)
+                if hasattr(model_cfg, 'architectures') and model_cfg.architectures:
+                    use_t5 = any('T5ForConditionalGeneration' in arch for arch in model_cfg.architectures)
+                    logger.info(f"Model architectures: {model_cfg.architectures}")
+            except Exception as e:
+                logger.warning(f"Could not load model config, falling back to path-based detection: {e}")
+                use_t5 = getattr(train_config, 'use_t5', False) or 't5' in str(train_config.llm_model_path).lower()
+            
+            if use_t5:
+                # T5 is a seq2seq model
+                logger.info("Detected T5 model - using T5ForConditionalGeneration")
+                model = T5ForConditionalGeneration.from_pretrained(
                     train_config.llm_model_path,
                     torch_dtype=torch_dtype,
                 )
-            model.resize_token_embeddings(vocab_size)
-            if not getattr(train_config, 'freeze_llm', False):
-                peft_config = LoraConfig(
-                    task_type=TaskType.CAUSAL_LM,
-                    inference_mode=False,
-                    r=model_config.llm_config.lora_config.r,
-                    lora_alpha=model_config.llm_config.lora_config.lora_alpha,
-                    lora_dropout=model_config.llm_config.lora_config.lora_dropout,
-                    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
-                )
-                model = get_peft_model(model, peft_config)
-                logger.info("Applied LoRA to LLM baseline")
+                model.resize_token_embeddings(vocab_size)
+                
+                # Apply LoRA if not freezing LLM
+                if not getattr(train_config, 'freeze_llm', False):
+                    peft_config = LoraConfig(
+                        task_type=TaskType.SEQ_2_SEQ_LM,
+                        inference_mode=False,
+                        r=model_config.llm_config.lora_config.r,
+                        lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                        lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                        target_modules=["q", "v"]  # T5 uses different attention module names
+                    )
+                    model = get_peft_model(model, peft_config)
+                    logger.info("Applied LoRA to T5 baseline")
+                
+                self.is_t5_baseline = True
+            else:
+                if train_config.enable_flash:
+                    try:
+                        model = AutoModelForCausalLM.from_pretrained(
+                            train_config.llm_model_path,
+                            torch_dtype=torch_dtype,
+                            attn_implementation="flash_attention_2",
+                        )
+                        logger.info("Using flash attention for LLM baseline")
+                    except TypeError:
+                        model = AutoModelForCausalLM.from_pretrained(
+                            train_config.llm_model_path,
+                            torch_dtype=torch_dtype,
+                        )
+                else:
+                    model = AutoModelForCausalLM.from_pretrained(
+                        train_config.llm_model_path,
+                        torch_dtype=torch_dtype,
+                    )
+                model.resize_token_embeddings(vocab_size)
+                if not getattr(train_config, 'freeze_llm', False):
+                    peft_config = LoraConfig(
+                        task_type=TaskType.CAUSAL_LM,
+                        inference_mode=False,
+                        r=model_config.llm_config.lora_config.r,
+                        lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                        lora_dropout=model_config.llm_config.lora_config.lora_alpha,
+                        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+                    )
+                    model = get_peft_model(model, peft_config)
+                    logger.info("Applied LoRA to LLM baseline")
+                
+                self.is_t5_baseline = False
+            
             self.is_llm_baseline = True
         else:
             # Use DQ encoder (default molecular encoder)
             self.is_llm_baseline = False
-            if hasattr(train_config, 'llm_model_path'):
+            if hasattr(train_config, 'llm_model_path') and train_config.llm_model_path is not None:
                 model_config.llm_config.llm_model = train_config.llm_model_path
             model = DQMolLLaMA(
                 config=model_config,
@@ -961,18 +1113,29 @@ class MoleculePropertyQATrainer(Trainer):
         
         with torch.no_grad():
             if getattr(self, 'is_llm_baseline', False):
-                eos_ids = self._get_eos_token_ids()
-                gen_kwargs = {
-                    'input_ids': text_batch.input_ids,
-                    'attention_mask': text_batch.attention_mask,
-                    'pad_token_id': self.tokenizer.pad_token_id,
-                    'max_new_tokens': 512,
-                    'do_sample': True,
-                    'temperature': 0.7,
-                }
-                if eos_ids is not None:
-                    gen_kwargs['eos_token_id'] = eos_ids
-                responses = model.generate(**gen_kwargs)
+                if getattr(self, 'is_t5_baseline', False):
+                    # T5 generation
+                    responses = model.generate(
+                        input_ids=text_batch.input_ids,
+                        attention_mask=text_batch.attention_mask,
+                        max_length=512,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                        eos_token_id=self.tokenizer.eos_token_id,
+                    )
+                else:
+                    # Causal LM generation
+                    eos_ids = self._get_eos_token_ids()
+                    gen_kwargs = {
+                        'input_ids': text_batch.input_ids,
+                        'attention_mask': text_batch.attention_mask,
+                        'pad_token_id': self.tokenizer.pad_token_id,
+                        'max_new_tokens': 512,
+                        'do_sample': True,
+                        'temperature': 0.7,
+                    }
+                    if eos_ids is not None:
+                        gen_kwargs['eos_token_id'] = eos_ids
+                    responses = model.generate(**gen_kwargs)
             else:
                 responses = model.generate(
                     graph_batch,
@@ -1153,9 +1316,45 @@ class MoleculeReactionTrainer(Trainer):
         self.use_dq_encoder = use_dq_encoder
         logger.info(f"use_dq_encoder: {use_dq_encoder}")
 
-        if train_config.get('llm_baseline', False):
+        if train_config.get('llm_only', False):
             logger.info("Using LLM baseline: ", train_config.llm_model_path)
-            if train_config.enable_flash:
+            
+            # Check if using T5 model (encoder-decoder architecture) by inspecting model config
+            use_t5 = False
+            try:
+                from transformers import AutoConfig
+                model_cfg = AutoConfig.from_pretrained(train_config.llm_model_path)
+                if hasattr(model_cfg, 'architectures') and model_cfg.architectures:
+                    use_t5 = any('T5ForConditionalGeneration' in arch for arch in model_cfg.architectures)
+                    logger.info(f"Model architectures: {model_cfg.architectures}")
+            except Exception as e:
+                logger.warning(f"Could not load model config, falling back to path-based detection: {e}")
+                use_t5 = getattr(train_config, 'use_t5', False) or 't5' in str(train_config.llm_model_path).lower()
+            
+            if use_t5:
+                # T5 is a seq2seq model
+                logger.info("Detected T5 model - using T5ForConditionalGeneration")
+                model = T5ForConditionalGeneration.from_pretrained(
+                    train_config.llm_model_path,
+                    torch_dtype=torch_dtype,
+                )
+                model.resize_token_embeddings(vocab_size)
+                
+                # Apply LoRA if not freezing LLM
+                if not getattr(train_config, 'freeze_llm', False):
+                    peft_config = LoraConfig(
+                        task_type=TaskType.SEQ_2_SEQ_LM,
+                        inference_mode=False,
+                        r=model_config.llm_config.lora_config.r,
+                        lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                        lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                        target_modules=["q", "v"]  # T5 uses different attention module names
+                    )
+                    model = get_peft_model(model, peft_config)
+                    logger.info("Applied LoRA to T5 baseline")
+                
+                self.is_t5_baseline = True
+            elif train_config.enable_flash:
                 try:
                     model = AutoModelForCausalLM.from_pretrained(
                         train_config.llm_model_path,
@@ -1168,28 +1367,43 @@ class MoleculeReactionTrainer(Trainer):
                         train_config.llm_model_path,
                         torch_dtype=torch_dtype,
                     )
+                model.resize_token_embeddings(vocab_size)
+                if not getattr(train_config, 'freeze_llm', False):
+                    peft_config = LoraConfig(
+                        task_type=TaskType.CAUSAL_LM,
+                        inference_mode=False,
+                        r=model_config.llm_config.lora_config.r,
+                        lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                        lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+                    )
+                    model = get_peft_model(model, peft_config)
+                    logger.info("Applied LoRA to LLM baseline")
+                self.is_t5_baseline = False
             else:
                 model = AutoModelForCausalLM.from_pretrained(
                     train_config.llm_model_path,
                     torch_dtype=torch_dtype,
                 )
-            model.resize_token_embeddings(vocab_size)
-            if not getattr(train_config, 'freeze_llm', False):
-                peft_config = LoraConfig(
-                    task_type=TaskType.CAUSAL_LM,
-                    inference_mode=False,
-                    r=model_config.llm_config.lora_config.r,
-                    lora_alpha=model_config.llm_config.lora_config.lora_alpha,
-                    lora_dropout=model_config.llm_config.lora_config.lora_dropout,
-                    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
-                )
-                model = get_peft_model(model, peft_config)
-                logger.info("Applied LoRA to LLM baseline")
+                model.resize_token_embeddings(vocab_size)
+                if not getattr(train_config, 'freeze_llm', False):
+                    peft_config = LoraConfig(
+                        task_type=TaskType.CAUSAL_LM,
+                        inference_mode=False,
+                        r=model_config.llm_config.lora_config.r,
+                        lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                        lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+                    )
+                    model = get_peft_model(model, peft_config)
+                    logger.info("Applied LoRA to LLM baseline")
+                self.is_t5_baseline = False
+            
             self.is_llm_baseline = True
         else:
             # Use DQ encoder (default molecular encoder)
             self.is_llm_baseline = False
-            if hasattr(train_config, 'llm_model_path'):
+            if hasattr(train_config, 'llm_model_path') and train_config.llm_model_path is not None:
                 model_config.llm_config.llm_model = train_config.llm_model_path
             model = DQMolLLaMA(
                 config=model_config,
@@ -1291,18 +1505,29 @@ class MoleculeReactionTrainer(Trainer):
         
         with torch.no_grad():
             if getattr(self, 'is_llm_baseline', False):
-                eos_ids = self._get_eos_token_ids()
-                gen_kwargs = {
-                    'input_ids': text_batch.input_ids,
-                    'attention_mask': text_batch.attention_mask,
-                    'pad_token_id': self.tokenizer.pad_token_id,
-                    'max_new_tokens': 512,
-                    'do_sample': True,
-                    'temperature': 0.7,
-                }
-                if eos_ids is not None:
-                    gen_kwargs['eos_token_id'] = eos_ids
-                responses = model.generate(**gen_kwargs)
+                if getattr(self, 'is_t5_baseline', False):
+                    # T5 generation
+                    responses = model.generate(
+                        input_ids=text_batch.input_ids,
+                        attention_mask=text_batch.attention_mask,
+                        max_length=512,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                        eos_token_id=self.tokenizer.eos_token_id,
+                    )
+                else:
+                    # Causal LM generation
+                    eos_ids = self._get_eos_token_ids()
+                    gen_kwargs = {
+                        'input_ids': text_batch.input_ids,
+                        'attention_mask': text_batch.attention_mask,
+                        'pad_token_id': self.tokenizer.pad_token_id,
+                        'max_new_tokens': 512,
+                        'do_sample': True,
+                        'temperature': 0.7,
+                    }
+                    if eos_ids is not None:
+                        gen_kwargs['eos_token_id'] = eos_ids
+                    responses = model.generate(**gen_kwargs)
             else:
                 responses = model.generate(
                     graph_batch,
@@ -1539,3 +1764,404 @@ class MoleculeReactionTrainer(Trainer):
                 continue
         ids = list(dict.fromkeys(ids))
         return ids if len(ids) > 0 else None
+
+
+class MoleculeOpenQuestionTrainer(Trainer):
+    """
+    Trainer for molecule open-question tasks.
+    
+    Supports metrics: BLEU, ROUGE-1, BertScore
+    """
+    def __init__(self, vocab_size, model_config, train_config, tokenizer, use_dq_encoder=False, torch_dtype=None, **kwargs):
+        self.train_config = train_config
+        
+        if torch_dtype is None:
+            if train_config.precision == 'bf16-mixed':
+                torch_dtype = "bfloat16"
+            elif train_config.precision == '16':
+                torch_dtype = "float16"
+            elif train_config.precision == '32':
+                torch_dtype = "float32"
+        
+        self.use_dq_encoder = use_dq_encoder
+        logger.info(f"use_dq_encoder: {use_dq_encoder}")
+
+        if train_config.get('llm_only', False):
+            logger.info("Using LLM baseline: ", train_config.llm_model_path)
+            
+            # Check if using T5 model (encoder-decoder architecture) by inspecting model config
+            use_t5 = False
+            try:
+                from transformers import AutoConfig
+                model_cfg = AutoConfig.from_pretrained(train_config.llm_model_path)
+                if hasattr(model_cfg, 'architectures') and model_cfg.architectures:
+                    use_t5 = any('T5ForConditionalGeneration' in arch for arch in model_cfg.architectures)
+                    logger.info(f"Model architectures: {model_cfg.architectures}")
+            except Exception as e:
+                logger.warning(f"Could not load model config, falling back to path-based detection: {e}")
+                use_t5 = getattr(train_config, 'use_t5', False) or 't5' in str(train_config.llm_model_path).lower()
+            
+            if use_t5:
+                # T5 is a seq2seq model
+                logger.info("Detected T5 model - using T5ForConditionalGeneration")
+                model = T5ForConditionalGeneration.from_pretrained(
+                    train_config.llm_model_path,
+                    torch_dtype=torch_dtype,
+                )
+                model.resize_token_embeddings(vocab_size)
+                
+                # Apply LoRA if not freezing LLM
+                if not getattr(train_config, 'freeze_llm', False):
+                    peft_config = LoraConfig(
+                        task_type=TaskType.SEQ_2_SEQ_LM,
+                        inference_mode=False,
+                        r=model_config.llm_config.lora_config.r,
+                        lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                        lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                        target_modules=["q", "v"]  # T5 uses different attention module names
+                    )
+                    model = get_peft_model(model, peft_config)
+                    logger.info("Applied LoRA to T5 baseline")
+                
+                self.is_t5_baseline = True
+            elif train_config.enable_flash:
+                try:
+                    model = AutoModelForCausalLM.from_pretrained(
+                        train_config.llm_model_path,
+                        torch_dtype=torch_dtype,
+                        attn_implementation="flash_attention_2",
+                    )
+                    logger.info("Using flash attention for LLM baseline")
+                except TypeError:
+                    model = AutoModelForCausalLM.from_pretrained(
+                        train_config.llm_model_path,
+                        torch_dtype=torch_dtype,
+                    )
+                model.resize_token_embeddings(vocab_size)
+                if not getattr(train_config, 'freeze_llm', False):
+                    peft_config = LoraConfig(
+                        task_type=TaskType.CAUSAL_LM,
+                        inference_mode=False,
+                        r=model_config.llm_config.lora_config.r,
+                        lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                        lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+                    )
+                    model = get_peft_model(model, peft_config)
+                    logger.info("Applied LoRA to LLM baseline")
+                self.is_t5_baseline = False
+            else:
+                model = AutoModelForCausalLM.from_pretrained(
+                    train_config.llm_model_path,
+                    torch_dtype=torch_dtype,
+                )
+                model.resize_token_embeddings(vocab_size)
+                if not getattr(train_config, 'freeze_llm', False):
+                    peft_config = LoraConfig(
+                        task_type=TaskType.CAUSAL_LM,
+                        inference_mode=False,
+                        r=model_config.llm_config.lora_config.r,
+                        lora_alpha=model_config.llm_config.lora_config.lora_alpha,
+                        lora_dropout=model_config.llm_config.lora_config.lora_dropout,
+                        target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+                    )
+                    model = get_peft_model(model, peft_config)
+                    logger.info("Applied LoRA to LLM baseline")
+                self.is_t5_baseline = False
+            
+            self.is_llm_baseline = True
+        else:
+            # Use DQ encoder (default molecular encoder)
+            self.is_llm_baseline = False
+            if hasattr(train_config, 'llm_model_path') and train_config.llm_model_path is not None:
+                model_config.llm_config.llm_model = train_config.llm_model_path
+            model = DQMolLLaMA(
+                config=model_config,
+                vocab_size=vocab_size,
+                torch_dtype = torch_dtype,
+                enable_flash = train_config.enable_flash,
+                freeze_llm = getattr(train_config, 'freeze_llm', False),
+                brics_gids_enable = train_config.brics_gids_enable,
+                entropy_gids_enable = train_config.entropy_gids_enable,
+                enable_blending = getattr(train_config, 'enable_blending', False),
+                load_ckpt_before_peft = getattr(train_config, 'load_ckpt_before_peft', False),
+                ckpt_path = getattr(train_config, 'ckpt_path', None),
+                llm_only = getattr(train_config, 'llm_only', False),  # Skip encoder for text-only tasks
+            )
+
+        self.test_step_outputs = []
+        
+        # Initialize parent Trainer
+        super().__init__(model=model, tokenizer=tokenizer, **kwargs)
+    
+    @property
+    def tokenizer(self):
+        """Access tokenizer via processing_class to avoid deprecation warning."""
+        return self.processing_class
+
+    def load_from_ckpt(self, ckpt_path, lora_init=False):
+        """Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors."""
+        if hasattr(self.model, 'load_from_ckpt'):
+            self.model.load_from_ckpt(ckpt_path, lora_init=lora_init)
+        else:
+            path = Path(ckpt_path)
+            if path.suffix == '.safetensors':
+                logger.info("Detected safetensors format")
+                state_dict = load_safetensors(ckpt_path)
+            else:
+                logger.info("Detected PyTorch checkpoint format")
+                checkpoint = torch.load(ckpt_path, map_location='cpu')
+                state_dict = checkpoint['state_dict'] if 'state_dict' in checkpoint else checkpoint
+            self.model.load_state_dict(state_dict, strict=False)
+            logger.info(f"✅ Successfully loaded weights from {ckpt_path}")
+
+    def create_optimizer_and_scheduler(self, num_training_steps: int):
+        """Setup optimizer and scheduler for HF Trainer."""
+        if self.optimizer is None:
+            optimizer = optim.AdamW(
+                self.model.parameters(), 
+                lr=self.train_config.init_lr, 
+                weight_decay=self.train_config.weight_decay
+            )
+            self.optimizer = optimizer
+        
+        if self.lr_scheduler is None:
+            if self.train_config.scheduler == 'linear_warmup_cosine_lr':
+                warmup_steps = min(num_training_steps, self.train_config.warmup_steps)
+                self.lr_scheduler = get_cosine_schedule_with_warmup(
+                    self.optimizer,
+                    num_warmup_steps=warmup_steps,
+                    num_training_steps=num_training_steps
+                )
+            elif self.train_config.scheduler == 'None':
+                self.lr_scheduler = None
+        
+        return self.optimizer, self.lr_scheduler
+
+    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
+        """Compute loss for training."""
+        graph_batch = inputs.get('graph_batch', {})
+        text_batch = inputs['text_batch']
+        
+        if getattr(self, 'is_llm_baseline', False):
+            output = model(
+                input_ids=text_batch.input_ids,
+                attention_mask=text_batch.attention_mask,
+                labels=text_batch.input_ids
+            )
+            loss = output.loss
+        else:
+            output = model(graph_batch, text_batch)
+            loss = output['loss'] if isinstance(output, dict) else output.loss
+
+        return (loss, output) if return_outputs else loss
+
+    def prediction_step(
+        self,
+        model: nn.Module,
+        inputs: Dict[str, Union[torch.Tensor, Any]],
+        prediction_loss_only: bool,
+        ignore_keys: Optional[List[str]] = None,
+    ) -> Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]:
+        """Perform an evaluation/prediction step for open-question generation."""
+        inputs = self._prepare_inputs(inputs)
+        
+        graph_batch = inputs.get('graph_batch', {})
+        text_batch = inputs['text_batch']
+        other_infos = inputs.get('other_infos', {})
+        
+        # Check if text_batch has labels attribute
+        has_labels = hasattr(text_batch, 'labels') or ('labels' in text_batch if isinstance(text_batch, dict) else False)
+        
+        with torch.no_grad():
+            if getattr(self, 'is_llm_baseline', False):
+                if getattr(self, 'is_t5_baseline', False):
+                    # T5 generation
+                    responses = model.generate(
+                        input_ids=text_batch.input_ids,
+                        attention_mask=text_batch.attention_mask,
+                        max_length=512,
+                        pad_token_id=self.tokenizer.pad_token_id,
+                        eos_token_id=self.tokenizer.eos_token_id,
+                    )
+                else:
+                    # Causal LM generation
+                    eos_ids = self._get_eos_token_ids()
+                    gen_kwargs = {
+                        'input_ids': text_batch.input_ids,
+                        'attention_mask': text_batch.attention_mask,
+                        'pad_token_id': self.tokenizer.pad_token_id,
+                        'max_new_tokens': 512,
+                        'do_sample': True,
+                        'temperature': 0.7,
+                    }
+                    if eos_ids is not None:
+                        gen_kwargs['eos_token_id'] = eos_ids
+                    responses = model.generate(**gen_kwargs)
+            else:
+                responses = model.generate(
+                    graph_batch,
+                    text_batch,
+                    pad_token_id=self.tokenizer.pad_token_id,
+                    eos_token_id=[self.tokenizer.eos_token_id],
+                )
+            generated_texts = self.tokenizer.batch_decode(responses, skip_special_tokens=True)
+
+            for pred_text, gt_text in zip(generated_texts, other_infos['answer']):
+                self.test_step_outputs.append({
+                    'prediction': pred_text,
+                    'ground_truth': gt_text,
+                })
+        
+        # Compute loss only if we have valid labels
+        loss = None
+        if has_labels:
+            try:
+                with torch.no_grad():
+                    if hasattr(text_batch, 'labels'):
+                        valid_labels = (text_batch.labels != -100).any()
+                        if valid_labels:
+                            loss = self.compute_loss(model, inputs, return_outputs=False)
+                    else:
+                        loss = self.compute_loss(model, inputs, return_outputs=False)
+            except Exception as e:
+                logger.warning(f"Could not compute loss during evaluation: {e}")
+                loss = None
+        
+        return (loss, None, None)
+
+    def evaluate(self, eval_dataset=None, ignore_keys=None, metric_key_prefix="eval"):
+        """Override evaluate to compute custom metrics."""
+        self.test_step_outputs = []
+        output = super().evaluate(eval_dataset, ignore_keys, metric_key_prefix)
+        
+        # Compute metrics on all ranks from their local outputs
+        metrics, per_sample = self.compute_metrics_open_question(self.test_step_outputs)
+        
+        # Add metrics to output (all ranks need these for best model selection)
+        for k, v in metrics.items():
+            output[f"{metric_key_prefix}_{k}"] = v
+        
+        # Save results only on main process
+        if self.args.local_rank in [-1, 0]:
+            output_dir = self.args.output_dir
+            os.makedirs(output_dir, exist_ok=True)
+            
+            # Include global step in filename to avoid overwriting
+            step_suffix = f"_step{self.state.global_step}" if self.state.global_step > 0 else ""
+            
+            with open(os.path.join(output_dir, f"{metric_key_prefix}_open_question_results{step_suffix}.json"), "w") as f:
+                json.dump(per_sample, f, indent=4)
+            with open(os.path.join(output_dir, f"{metric_key_prefix}_open_question_metrics{step_suffix}.json"), "w") as f:
+                json.dump(metrics, f, indent=4)
+        
+        return output
+
+    def predict(self, test_dataset, ignore_keys=None, metric_key_prefix="test"):
+        """Override predict to compute custom metrics."""
+        self.test_step_outputs = []
+        output = super().predict(test_dataset, ignore_keys, metric_key_prefix)
+        
+        if self.args.local_rank in [-1, 0]:
+            metrics, per_sample = self.compute_metrics_open_question(self.test_step_outputs)
+            output_dir = self.args.output_dir
+            os.makedirs(output_dir, exist_ok=True)
+            
+            with open(os.path.join(output_dir, f"{metric_key_prefix}_open_question_results.json"), "w") as f:
+                json.dump(per_sample, f, indent=4)
+            with open(os.path.join(output_dir, f"{metric_key_prefix}_open_question_metrics.json"), "w") as f:
+                json.dump(metrics, f, indent=4)
+        
+        return output
+
+    def compute_metrics_open_question(self, outputs):
+        """
+        Compute metrics for open-question tasks.
+        
+        Metrics:
+        - BLEU: BLEU score
+        - ROUGE-1: ROUGE-1 F-measure
+        - BertScore: BertScore F1
+        """
+        # Handle empty outputs
+        if not outputs:
+            return {
+                'bleu': 0.0,
+                'rouge1': 0.0,
+                'bertscore': 0.0,
+            }, []
+        
+        per_sample = []
+        
+        # Collect predictions and ground truths
+        predictions = [o['prediction'] for o in outputs]
+        ground_truths = [o['ground_truth'] for o in outputs]
+        
+        # BLEU Score - compute on word tokens
+        bleu_scores = []
+        for pred, gt in zip(predictions, ground_truths):
+            try:
+                ref_tokens = gt.split()
+                pred_tokens = pred.split()
+                if len(pred_tokens) > 0:
+                    bleu = corpus_bleu([[ref_tokens]], [pred_tokens], weights=(0.5, 0.5))
+                else:
+                    bleu = 0.0
+                bleu_scores.append(bleu)
+            except Exception:
+                bleu_scores.append(0.0)
+        
+        # ROUGE Score
+        scorer = rouge_scorer.RougeScorer(['rouge1'], use_stemmer=True)
+        rouge_scores = []
+        for pred, gt in zip(predictions, ground_truths):
+            try:
+                rs = scorer.score(gt, pred)
+                rouge_scores.append(rs['rouge1'].fmeasure)
+            except Exception:
+                rouge_scores.append(0.0)
+        
+        # BertScore
+        try:
+            P, R, F1 = bert_score(predictions, ground_truths, lang='en', verbose=False)
+            bert_scores = F1.cpu().numpy().tolist()
+        except Exception as e:
+            logger.warning(f"Could not compute BertScore: {e}")
+            bert_scores = [0.0] * len(predictions)
+        
+        # Build per-sample results
+        for pred, gt, bleu, rouge, bert in zip(predictions, ground_truths, bleu_scores, rouge_scores, bert_scores):
+            per_sample.append({
+                'prediction': pred,
+                'ground_truth': gt,
+                'bleu': float(bleu),
+                'rouge1': float(rouge),
+                'bertscore': float(bert),
+            })
+        
+        # Aggregate metrics
+        metrics = {
+            'BLEU': float(np.mean(bleu_scores)),
+            'ROUGE-1': float(np.mean(rouge_scores)),
+            'BertScore': float(np.mean(bert_scores)),
+        }
+        
+        return metrics, per_sample
+
+    def _get_eos_token_ids(self):
+        ids = []
+        try:
+            if getattr(self.tokenizer, 'eos_token_id', None) is not None:
+                ids.append(self.tokenizer.eos_token_id)
+        except Exception:
+            pass
+        for tok in ["<|eot_id|>", "<eos_token>", "<end_of_turn>", "<|endoftext|>", "<eos>", "</s>"]:
+            try:
+                tid = self.tokenizer.convert_tokens_to_ids(tok)
+                if isinstance(tid, int) and tid >= 0:
+                    ids.append(tid)
+            except Exception:
+                continue
+        ids = list(dict.fromkeys(ids))
+        return ids if len(ids) > 0 else None
+

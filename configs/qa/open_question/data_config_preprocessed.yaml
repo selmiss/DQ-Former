@@ -1,0 +1,37 @@
+# Data Configuration for Description-Guided Molecule Design with Preprocessed Data
+# This configuration uses preprocessed datasets for faster training
+# NOTE: This task takes TEXT as input (no graph data), outputs SELFIES
+
+# Preprocessed dataset settings
+use_preprocessed: true
+
+# Path to preprocessed data
+# Can be:
+#   - Local directory: 'data/description_guided_molecule_design/' (expects train.jsonl and test.jsonl)
+#   - HuggingFace Hub repo: 'username/mol-design-preprocessed'
+preprocessed_data: data/mol_instructions_processed/open_question/
+
+# Task type: 'reaction' for molecule generation/reaction tasks
+task_type: open_question
+training_ratio: 1
+
+# Molecular representation type
+# NOTE: This task has NO graph input (text-to-molecule), so we use text-only mode
+# Options: 'mol', 'SMILES', 'SMILES,mol', 'SELFIES', 'SELFIES,mol'
+# For reaction tasks: SELFIES in conversations + mol graph data
+mol_type: SELFIES
+max_eval_samples: 500
+# HuggingFace datasets options (optional)
+
+use_streaming: false  # Set to true for very large datasets
+cache_dir: null       # Optional: specify custom cache directory
+
+# Evaluation settings
+# max_eval_samples: null  # Limit evaluation to N samples for faster training (null = use all)
+# random_seed: 42        # Random seed for sampling eval samples
+# Legacy fields (for fallback to original data loading if needed)
+root: data/moleculeqa/
+num_workers: 0
+batch_size: 8
+
+

@@ -54,6 +54,7 @@ from runner.trainers.qa import (
     MoleculeGENQATrainer,
     MoleculePropertyQATrainer,
     MoleculeReactionTrainer,
+    MoleculeOpenQuestionTrainer,
 )
 
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
@@ -87,6 +88,10 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         tokenizer = AutoTokenizer.from_pretrained(
             model_args.llm_backbone, padding_side="left"
         )
+    elif model_args.model_name_or_path is not None:
+        tokenizer = AutoTokenizer.from_pretrained(
+            model_args.model_name_or_path, padding_side="left"
+        )
     else:
         tokenizer = AutoTokenizer.from_pretrained(
             "DongkiKim/Mol-Llama-3.1-8B-Instruct",
@@ -105,24 +110,25 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     if use_mollama_baseline:
         # Mol-LLaMA baseline: use config similar to inference.py
         logger.info("Using Mol-LLaMA baseline model configuration")
-        llm_model_path = model_args.llm_backbone if model_args.llm_backbone is not None else "DongkiKim/Mol-Llama-3.1-8B-Instruct"
+        # Priority: llm_backbone > model_name_or_path > default
+        logger.info(f"🔧 Base LLM model to load: {model_args.model_name_or_path}")
         model_config = MolLLaMAConfig(
-            llm_config={'llm_model': llm_model_path},
+            llm_config={'llm_model': model_args.model_name_or_path},
             qformer_config={
                 'use_dq_encoder': model_args.use_dq_encoder,
                 'use_flash_attention': True,
-                'num_query_tokens': model_args.num_query_tokens,
-                'embed_dim': model_args.embed_dim,
-                'cross_attention_freq': model_args.cross_attention_freq,
+                'num_query_tokens': 8,
+                'embed_dim': 256,
+                'cross_attention_freq': 2,
                 'max_local_query': 0,
             },
             graph_encoder_config={
                 'encoder_types': ['unimol', 'moleculestm'] if model_args.enable_blending else ['unimol']
             },
             blending_module_config={
-                'enable_blending': model_args.enable_blending,
-                'num_layers': model_args.num_layers,
-                'num_heads': model_args.num_heads
+                'enable_blending': True,
+                'num_layers': 4,
+                'num_heads': 8
             },
             torch_dtype="float16"
         )
@@ -144,7 +150,6 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
                 "enable_blending": model_args.enable_blending,
             },
         )
-        
         if model_args.llm_backbone is not None:
             model_config.llm_config.llm_model = model_args.llm_backbone
 
@@ -308,6 +313,10 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         # Use MoleculeReactionTrainer for all reaction/molecule generation tasks
         trainer_class = MoleculeReactionTrainer
         logger.info(f"Using MoleculeReactionTrainer for task: {task_type}")
+    elif task_type in ['open_question', 'openquestion', 'open-question']:
+        # Use MoleculeOpenQuestionTrainer for open-ended question answering tasks
+        trainer_class = MoleculeOpenQuestionTrainer
+        logger.info(f"Using MoleculeOpenQuestionTrainer for task: {task_type}")
     else:  # default to 'qa'
         trainer_class = MoleculeQATrainer
     
@@ -353,6 +362,7 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         'load_ckpt_before_peft': model_args.load_ckpt_before_peft,
         'ckpt_path': model_args.model_name_or_path if model_args.load_ckpt_before_peft else None,
         'llm_only': getattr(model_args, 'llm_only', False),  # LLM-only mode for text-only tasks
+        'llm_model_path': model_args.model_name_or_path,
     })
     
     # Create trainer with actual datasets (no workaround needed!)
@@ -378,21 +388,23 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
     logger.info(f"🔍 model_name_or_path = {model_args.model_name_or_path}")
     logger.info(f"🔍 baseline_type = {baseline_type}")
     
-    # Determine checkpoint path: prioritize lora_path for mol-llama baseline, otherwise use model_name_or_path
+    # Checkpoint loading logic:
+    # - model_name_or_path: base LLM to load (e.g., "unsloth/Llama-3.1-8B-Instruct")
+    # - lora_path: checkpoint with trained weights/adapters to load on top
     ckpt_path = None
     if use_mollama_baseline:
-        ckpt_path = getattr(model_args, 'lora_path', None) or model_args.model_name_or_path
+        ckpt_path = getattr(model_args, 'lora_path', None)
         if ckpt_path:
-            logger.info(f"Loading Mol-LLaMA baseline checkpoint: {ckpt_path}")
+            logger.info(f"Loading Mol-LLaMA checkpoint from lora_path: {ckpt_path}")
             lora_init = getattr(model_args, 'lora_init', False)
             trainer.load_from_ckpt(ckpt_path, lora_init=lora_init)
         elif model_args.zero_shot:
             raise ValueError(
                 "Zero-shot mode requires a pretrained checkpoint! "
-                "Please provide lora_path or model_name_or_path in your model config."
+                "Please provide lora_path in your model config."
             )
         else:
-            logger.warning("⚠️  No checkpoint provided for mol-llama baseline - using randomly initialized weights")
+            logger.info("💡 No lora_path provided - training from base LLM weights")
     elif model_args.model_name_or_path and not load_ckpt_before_peft:
         logger.info(f"Loading from pretrained checkpoint: {model_args.model_name_or_path}")
         trainer.load_from_ckpt(model_args.model_name_or_path)
@@ -501,8 +513,8 @@ if __name__ == "__main__":
     parser.add_argument(
         "--deepspeed_stage",
         type=int,
-        default=3,
-        choices=[2, 3],
+        default=0,
+        choices=[0, 2, 3],
         help="DeepSpeed ZeRO stage (2 or 3). Default 3 for evaluation/inference support.",
     )
     parser.add_argument(
@@ -539,12 +551,12 @@ if __name__ == "__main__":
     
     # Setup DeepSpeed config based on command-line argument
     deepspeed_config = None
-    if num_train_epochs == 0:
+    if num_train_epochs == 0 or args.deepspeed_stage == 0:
         logger.info("=" * 80)
         logger.info("🎯 num_train_epochs=0 detected: Disabling DeepSpeed for pure evaluation mode")
         logger.info("=" * 80)
         deepspeed_config = None
-    else:
+    elif args.deepspeed_stage in [2, 3]:
         if args.deepspeed_stage == 3:
             deepspeed_config = os.path.join(BASE_DIR, "configs/deepspeed/ds_config_zero3.json")
         else:

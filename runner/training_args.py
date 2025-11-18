@@ -212,6 +212,15 @@ class ModelArguments:
         default=False,
         metadata={"help": "Whether to initialize LoRA when loading Mol-LLaMA checkpoint (used when baseline_type='mollama')."}
     )
+    # LLM baseline (generic) support
+    llm_baseline: bool = field(
+        default=False,
+        metadata={"help": "Enable LLM-only baseline in trainers (skip molecular encoders)."}
+    )
+    llm_model_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Hugging Face model id or local path for LLM baseline (fallback to llm_backbone if unset)."}
+    )
 
 
 def parse_args_from_yaml(

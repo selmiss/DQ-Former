@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
 """
-Preprocess text-to-molecule datasets (no graph input).
+Preprocess text-to-text or text-to-molecule datasets (no graph input).
 
-This script handles datasets where the INPUT is plain text (descriptions)
-and the OUTPUT is a molecule (SELFIES). No molecular graph processing is needed.
+This script handles datasets where the INPUT is plain text and the OUTPUT 
+is either plain text or a molecule (SELFIES). No molecular graph processing is needed.
 
-Example task: description-guided molecule design
-  Input: "The molecule is a natural product found in..."  (TEXT)
-  Output: "[C][C@H1][C@@H1]..."  (SELFIES)
+Example tasks:
+  1. Description-guided molecule design (text-to-molecule):
+     Input: "The molecule is a natural product found in..."  (TEXT)
+     Output: "[C][C@H1][C@@H1]..."  (SELFIES)
+  
+  2. Open question (text-to-text):
+     Instruction: "Answer the following question about molecules."
+     Input: "What is the main mechanism of drug metabolism?"
+     Output: "The main mechanism is enzymatic transformation by cytochrome P450..."  (TEXT)
 
 Usage:
     python preprocess_text_to_mol.py \
-        --input_json data/Molecule-oriented_Instructions/description_guided_molecule_design.json \
+        --input_json data/Biomolecular_Text_Instructions/open_question.json \
         --output_dir data/mol_instructions_processed \
-        --task_name description_guided_molecule_design
+        --task_name open_question
 """
 
 import os
@@ -34,10 +40,10 @@ from data_provider.precess_mol_instructions import normalize_split
 
 def process_single_item(item: Dict, cid: int, task_name: str) -> Optional[Dict]:
     """
-    Process a single text-to-molecule item.
+    Process a single text-to-text or text-to-molecule item.
     
     Args:
-        item: Original data item with instruction, input (text), output (SELFIES), metadata
+        item: Original data item with instruction, input (text), output (text/SELFIES), metadata
         cid: Unique compound ID
         task_name: Name of the task
     
@@ -45,17 +51,26 @@ def process_single_item(item: Dict, cid: int, task_name: str) -> Optional[Dict]:
         Processed record in simplified format (no graph_data)
     """
     instruction = str(item.get("instruction", "")).strip()
-    input_text = str(item.get("input", "")).strip()  # Plain text description
-    output_selfies = str(item.get("output", "")).strip()  # SELFIES molecule
+    input_text = str(item.get("input", "")).strip()  # Plain text input
+    output_text = str(item.get("output", "")).strip()  # Text answer or SELFIES molecule
     metadata = item.get("metadata", {}) or {}
     split = normalize_split(metadata.get("split", "train"))
     
-    if not input_text or not output_selfies:
-        print(f"  Warning: Missing input or output for cid {cid}")
+    # Validate inputs
+    if not output_text:
+        print(f"  Warning: Missing output for cid {cid}")
         return None
     
-    # Create user prompt (no molecular placeholders since input is just text)
-    user_prompt = f"{instruction}\n{input_text}".strip()
+    # For open question tasks, input might be empty (only instruction)
+    # Create user prompt by combining instruction and input
+    if input_text:
+        user_prompt = f"{instruction}\n{input_text}".strip()
+    else:
+        user_prompt = instruction.strip()
+    
+    if not user_prompt:
+        print(f"  Warning: Missing instruction and input for cid {cid}")
+        return None
     
     # Create record in simplified format (NO graph_data)
     record = {
@@ -64,7 +79,7 @@ def process_single_item(item: Dict, cid: int, task_name: str) -> Optional[Dict]:
         "conversations": [
             {
                 "user": user_prompt,
-                "assistant": output_selfies  # Output molecule in SELFIES
+                "assistant": output_text  # Output text (answer or SELFIES)
             }
         ],
         "category": task_name,
@@ -80,11 +95,11 @@ def process_dataset(
     skip_failures: bool = True
 ) -> Dict[str, List[Dict]]:
     """
-    Process a full text-to-molecule dataset.
+    Process a full text-to-text or text-to-molecule dataset.
     
     Args:
         input_json: Path to input JSON file
-        task_name: Name of the task
+        task_name: Name of the task (e.g., 'open_question', 'description_guided_molecule_design')
         max_train_samples: Maximum number of training samples (None = all)
         skip_failures: If True, skip failed items; if False, raise error
     
@@ -160,7 +175,7 @@ def write_jsonl(records: List[Dict], output_path: str):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Preprocess text-to-molecule instruction datasets (no graph input)'
+        description='Preprocess text-to-text or text-to-molecule instruction datasets (no graph input)'
     )
     parser.add_argument(
         '--input_json',
@@ -178,7 +193,7 @@ def main():
         '--task_name',
         type=str,
         required=True,
-        help='Name of the task (e.g., description_guided_molecule_design)'
+        help='Name of the task (e.g., open_question, description_guided_molecule_design)'
     )
     parser.add_argument(
         '--max_train_samples',
@@ -197,8 +212,8 @@ def main():
     
     # Print configuration
     print("\n" + "="*60)
-    print("Text-to-Molecule Instructions Preprocessor")
-    print("(No graph input - text description to molecule)")
+    print("Text-Based Instructions Preprocessor")
+    print("(No graph input - text to text/molecule)")
     print("="*60)
     print(f"Input: {args.input_json}")
     print(f"Output: {args.output_dir}")

@@ -4,7 +4,7 @@
 : "${HF_HOME:?Environment variable HF_HOME not set}"
 
 export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
-export CUDA_VISIBLE_DEVICES=6
+export CUDA_VISIBLE_DEVICES=0
 
 # List of tasks to evaluate
 TASKS=${TASKS:-"bace bbbp pampa clintox hia pgp ames dili herg"}

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Description-Guided Molecule Design Finetuning Training Script
-
+# 8hours to train 5 epochs
 # Source environment setup
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
@@ -39,18 +39,18 @@ echo "=========================================="
 echo "Description-Guided Molecule Design DQ-Former Training"
 echo "=========================================="
 echo "BASE_DIR: $BASE_DIR"
-echo "GPUs: $GPUs"
-echo "MASTER_PORT: $MASTER_PORT"
-echo "DeepSpeed Stage: $DEEPSPEED_STAGE"
+# echo "GPUs: $GPUs"
+# echo "MASTER_PORT: $MASTER_PORT"
+# echo "DeepSpeed Stage: $DEEPSPEED_STAGE"
 echo "=========================================="
 
 # Launch training with DeepSpeed
-deepspeed --master_port ${MASTER_PORT} --include localhost:${GPUs} \
-    ${BASE_DIR}/runner/qa_finetuning.py \
+# deepspeed --master_port ${MASTER_PORT} --include localhost:${GPUs} \
+CUDA_VISIBLE_DEVICES=0 python ${BASE_DIR}/runner/qa_finetuning.py \
     --model_config_path ${BASE_DIR}/configs/qa/mol-llama/description_guided_molecule_design/model_config.yaml \
     --training_config_path ${BASE_DIR}/configs/qa/mol-llama/description_guided_molecule_design/training_config.yaml \
-    --data_config_path ${BASE_DIR}/configs/qa/mol-llama/description_guided_molecule_design/data_config_preprocessed.yaml \
-    --deepspeed_stage ${DEEPSPEED_STAGE}
+    --data_config_path ${BASE_DIR}/configs/qa/mol-llama/description_guided_molecule_design/data_config_preprocessed.yaml
+    # --deepspeed_stage ${DEEPSPEED_STAGE}
 
 echo "=========================================="
 echo "Training completed!"
