@@ -4,6 +4,7 @@
 
 # Pretrained checkpoint path (Stage 2 checkpoint for molecule design training)
 model_name_or_path: QizhiPei/biot5-base # Automatically loads Stage 2 full model checkpoint
+llm_backbone: QizhiPei/biot5-base
 
 baseline_type: llm_only
 # QFormer Configuration
@@ -22,7 +23,6 @@ num_layers: 8
 num_heads: 8
 
 # LLM Configuration
-llm_backbone: null  # Optional: override default LLM model (e.g., "meta-llama/Meta-Llama-3-8B")
 freeze_llm: False  # For molecule design finetuning, we typically don't freeze LLM
 enable_lora_qformer: False
 llm_only: True  # TEXT-ONLY MODE: Skip encoder entirely (saves ~20-25 GB GPU memory for text-to-molecule tasks)

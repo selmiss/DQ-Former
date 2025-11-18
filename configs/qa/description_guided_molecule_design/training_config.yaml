@@ -4,7 +4,7 @@
 run_name: mol_design_v1
 
 # Training hyperparameters
-num_train_epochs: 5
+num_train_epochs: 10
 learning_rate: 1.0e-4  # Initial learning rate for molecule design finetuning
 weight_decay: 0.05
 warmup_steps: 100

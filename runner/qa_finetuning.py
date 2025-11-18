@@ -88,9 +88,10 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         tokenizer = AutoTokenizer.from_pretrained(
             model_args.llm_backbone, padding_side="left"
         )
-    elif model_args.model_name_or_path is not None:
+    elif model_args.model_name_or_path is not None and not os.path.exists(model_args.model_name_or_path):
         tokenizer = AutoTokenizer.from_pretrained(
-            model_args.model_name_or_path, padding_side="left"
+            model_args.model_name_or_path, 
+            padding_side="left",
         )
     else:
         tokenizer = AutoTokenizer.from_pretrained(
@@ -150,8 +151,14 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
                 "enable_blending": model_args.enable_blending,
             },
         )
+        # Priority: llm_backbone > default (don't use model_name_or_path for LLM backbone in edt_former)
+        # model_name_or_path is for the full checkpoint, not the LLM backbone
         if model_args.llm_backbone is not None:
+            logger.info(f"🔧 Setting LLM backbone from llm_backbone: {model_args.llm_backbone}")
             model_config.llm_config.llm_model = model_args.llm_backbone
+        else:
+            # Keep default LLM model from config (unsloth/Llama-3.1-8B-Instruct)
+            logger.info(f"🔧 Using default LLM backbone: {model_config.llm_config.llm_model}")
 
     # Determine torch dtype from training_args
     if training_args.bf16:
@@ -362,7 +369,10 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
         'load_ckpt_before_peft': model_args.load_ckpt_before_peft,
         'ckpt_path': model_args.model_name_or_path if model_args.load_ckpt_before_peft else None,
         'llm_only': getattr(model_args, 'llm_only', False),  # LLM-only mode for text-only tasks
-        'llm_model_path': model_args.model_name_or_path,
+        # For mol-llama baseline: llm_model_path is the base LLM (from model_name_or_path)
+        # For edt_former: llm_model_path should be llm_backbone (or None to use default)
+        'llm_backbone': model_args.llm_backbone,
+        'llm_model_path': model_args.model_name_or_path if use_mollama_baseline else model_args.llm_backbone,
     })
     
     # Create trainer with actual datasets (no workaround needed!)

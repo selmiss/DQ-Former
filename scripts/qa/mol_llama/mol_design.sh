@@ -16,8 +16,8 @@ else
 fi
 
 # Configuration
-export GPUs="0"  # GPU IDs to use for molecule design training
-export MASTER_PORT=29500  # Master port for distributed training
+# export GPUs="0"  # GPU IDs to use for molecule design training
+# export MASTER_PORT=29500  # Master port for distributed training
 
 # Set CUDA architecture to avoid compilation warnings
 # Common options: "7.0" (V100), "8.0" (A100), "8.6" (RTX 3090), "8.9" (RTX 4090), "9.0" (H100)
@@ -32,7 +32,7 @@ export TORCH_CUDA_ARCH_LIST="8.0"
 # Usage: ./mol_design.sh     (default - auto-detects based on num_train_epochs)
 #        ./mol_design.sh 3   (training with eval)
 #        ./mol_design.sh 2   (training without eval)
-DEEPSPEED_STAGE=${1:-2}
+# DEEPSPEED_STAGE=${1:-2}
 
 
 echo "=========================================="

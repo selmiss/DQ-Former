@@ -16,6 +16,7 @@ cross_attention_freq: 1
 local_q_only: False
 
 # Blending Module Configuration
+
 enable_blending: True  # No blending needed for text-only input
 num_layers: 8
 num_heads: 8
@@ -37,5 +38,4 @@ entropy_gids_enable: True  # No entropy for text input
 # If True: Load checkpoint, skip training, evaluate directly (requires model_name_or_path)
 # If False: Normal training mode (load checkpoint, train, then evaluate)
 zero_shot: False
-
 

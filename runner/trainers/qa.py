@@ -50,7 +50,7 @@ class MoleculeQATrainer(Trainer):
         self.use_dq_encoder = use_dq_encoder
         logger.info(f"use_dq_encoder: {use_dq_encoder}")
 
-        if train_config.get('llm_only', False):
+        if train_config.get('llm_only', False) and train_config.get('llm_backbone', None) is not None:
             # LLM baseline - only use language model without molecular encoders
             logger.info("Using LLM baseline: ", train_config.llm_model_path)
             
@@ -132,6 +132,8 @@ class MoleculeQATrainer(Trainer):
         else:
             # Use DQ encoder (default molecular encoder)
             self.is_llm_baseline = False
+            # Override LLM backbone if explicitly specified (e.g., via llm_backbone parameter)
+            # For edt_former, this is typically None, using the default LLM from config
             if hasattr(train_config, 'llm_model_path') and train_config.llm_model_path is not None:
                 model_config.llm_config.llm_model = train_config.llm_model_path
             model = DQMolLLaMA(
@@ -534,7 +536,7 @@ class MoleculeGENQATrainer(Trainer):
         self.use_dq_encoder = use_dq_encoder
         logger.info(f"use_dq_encoder: {use_dq_encoder}")
 
-        if train_config.get('llm_only', False):
+        if train_config.get('llm_only', False) and train_config.get('llm_backbone', None) is not None:
             logger.info("Using LLM baseline: ", train_config.llm_model_path)
             
             # Check if using T5 model (encoder-decoder architecture) by inspecting model config
@@ -610,6 +612,8 @@ class MoleculeGENQATrainer(Trainer):
         else:
             # Use DQ encoder (default molecular encoder)
             self.is_llm_baseline = False
+            # Override LLM backbone if explicitly specified (e.g., via llm_backbone parameter)
+            # For edt_former, this is typically None, using the default LLM from config
             if hasattr(train_config, 'llm_model_path') and train_config.llm_model_path is not None:
                 model_config.llm_config.llm_model = train_config.llm_model_path
             model = DQMolLLaMA(
@@ -926,7 +930,7 @@ class MoleculePropertyQATrainer(Trainer):
         self.use_dq_encoder = use_dq_encoder
         logger.info(f"use_dq_encoder: {use_dq_encoder}")
 
-        if train_config.get('llm_only', False):
+        if train_config.get('llm_only', False) and train_config.get('llm_backbone', None) is not None:
             logger.info("Using LLM baseline: ", train_config.llm_model_path)
             
             # Check if using T5 model (encoder-decoder architecture) by inspecting model config
@@ -1002,6 +1006,8 @@ class MoleculePropertyQATrainer(Trainer):
         else:
             # Use DQ encoder (default molecular encoder)
             self.is_llm_baseline = False
+            # Override LLM backbone if explicitly specified (e.g., via llm_backbone parameter)
+            # For edt_former, this is typically None, using the default LLM from config
             if hasattr(train_config, 'llm_model_path') and train_config.llm_model_path is not None:
                 model_config.llm_config.llm_model = train_config.llm_model_path
             model = DQMolLLaMA(
@@ -1316,7 +1322,7 @@ class MoleculeReactionTrainer(Trainer):
         self.use_dq_encoder = use_dq_encoder
         logger.info(f"use_dq_encoder: {use_dq_encoder}")
 
-        if train_config.get('llm_only', False):
+        if train_config.get('llm_only', False) and train_config.get('llm_backbone', None) is not None:
             logger.info("Using LLM baseline: ", train_config.llm_model_path)
             
             # Check if using T5 model (encoder-decoder architecture) by inspecting model config
@@ -1403,6 +1409,8 @@ class MoleculeReactionTrainer(Trainer):
         else:
             # Use DQ encoder (default molecular encoder)
             self.is_llm_baseline = False
+            # Override LLM backbone if explicitly specified (e.g., via llm_backbone parameter)
+            # For edt_former, this is typically None, using the default LLM from config
             if hasattr(train_config, 'llm_model_path') and train_config.llm_model_path is not None:
                 model_config.llm_config.llm_model = train_config.llm_model_path
             model = DQMolLLaMA(
@@ -1786,7 +1794,7 @@ class MoleculeOpenQuestionTrainer(Trainer):
         self.use_dq_encoder = use_dq_encoder
         logger.info(f"use_dq_encoder: {use_dq_encoder}")
 
-        if train_config.get('llm_only', False):
+        if train_config.get('llm_only', False) and train_config.get('llm_backbone', None) is not None:
             logger.info("Using LLM baseline: ", train_config.llm_model_path)
             
             # Check if using T5 model (encoder-decoder architecture) by inspecting model config
@@ -1873,6 +1881,8 @@ class MoleculeOpenQuestionTrainer(Trainer):
         else:
             # Use DQ encoder (default molecular encoder)
             self.is_llm_baseline = False
+            # Override LLM backbone if explicitly specified (e.g., via llm_backbone parameter)
+            # For edt_former, this is typically None, using the default LLM from config
             if hasattr(train_config, 'llm_model_path') and train_config.llm_model_path is not None:
                 model_config.llm_config.llm_model = train_config.llm_model_path
             model = DQMolLLaMA(

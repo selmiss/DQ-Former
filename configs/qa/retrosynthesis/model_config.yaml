@@ -20,7 +20,10 @@ num_layers: 8
 num_heads: 8
 
 # LLM Configuration
-llm_backbone: null  # Optional: override default LLM model (e.g., "meta-llama/Meta-Llama-3-8B")
+# NOTE: For edt_former, model_name_or_path is the FULL checkpoint (encoder+LLM), not the LLM backbone
+# llm_backbone specifies which base LLM to load before applying the checkpoint weights
+# If null, uses default: 'unsloth/Llama-3.1-8B-Instruct'
+llm_backbone: null  # Optional: override default LLM backbone (e.g., "unsloth/Llama-3.1-8B-Instruct")
 freeze_llm: False  # For retrosynthesis finetuning, we typically don't freeze LLM
 enable_lora_qformer: False
 

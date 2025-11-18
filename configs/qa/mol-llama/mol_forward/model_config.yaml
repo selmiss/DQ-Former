@@ -1,8 +1,9 @@
 # Model Configuration for Forward Reaction Prediction Finetuning
 # These parameters define the model architecture
 
-# Pretrained checkpoint path (Stage 2 checkpoint for MoleculeQA training)
-model_name_or_path: unsloth/Llama-3.1-8B-Instruct # Automatically loads Stage 2 full model checkpoint
+# NOTE: For mol-llama baseline, model_name_or_path is the BASE LLM model (not a full checkpoint)
+# The lora_path specifies additional adapters/weights to load on top
+model_name_or_path: unsloth/Llama-3.1-8B-Instruct # Base LLM for mol-llama baseline
 
 baseline_type: mollama
 lora_path: ../hf_cache/hub/models--DongkiKim--Mol-Llama-3.1-8B-Instruct/snapshots/dd99e6ea328e01d713ac31aaad017074a6126483/model.safetensors
