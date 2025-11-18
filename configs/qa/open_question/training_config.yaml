@@ -11,9 +11,9 @@ warmup_steps: 100
 lr_scheduler_type: "cosine"  # Must be quoted string
 
 # Batch size and accumulation
-per_device_train_batch_size: 4
-per_device_eval_batch_size: 4
-gradient_accumulation_steps: 16  # Effective batch size = 4 * num_gpus * 8 (reduced from 32 due to unused encoder memory)
+per_device_train_batch_size: 2
+per_device_eval_batch_size: 2
+gradient_accumulation_steps: 32  # Effective batch size = 4 * num_gpus * 8 (reduced from 32 due to unused encoder memory)
 
 # Precision
 bf16: True
@@ -26,7 +26,7 @@ save_total_limit: 3
 eval_strategy: "epoch"  # IMPORTANT: Set to "no" for ZeRO Stage 2 (eval during training requires Stage 3)
 eval_steps: 1
 # load_best_model_at_end: False
-metric_for_best_model: "eval_exact"  # For reaction tasks: exact match accuracy
+metric_for_best_model: "eval_BLEU"  # For reaction tasks: exact match accuracy
 greater_is_better: True  # True for accuracy metrics
 
 # Logging

@@ -32,6 +32,6 @@ cache_dir: null       # Optional: specify custom cache directory
 # Legacy fields (for fallback to original data loading if needed)
 root: data/moleculeqa/
 num_workers: 0
-batch_size: 4
+batch_size: 2
 
 
