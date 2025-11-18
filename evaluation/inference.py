@@ -350,7 +350,7 @@ if __name__ == '__main__':
     parser.add_argument('--tokenizer_path', type=str, default=None)
     parser.add_argument('--qformer_path', type=str, default=None)
     parser.add_argument('--device', type=str, default='cuda:0')
-    parser.add_argument('--prompt_type', type=str, default='default', choices=['default', 'rationale', 'task_info', 'default_variant_1', 'default_variant_2', 'default_variant_3', 'rationale_variant_1', 'rationale_variant_2', 'task_info_variant_1', 'task_info_variant_2', 'concise', 'scientific', 'step_by_step'],)
+    parser.add_argument('--prompt_type', type=str, default='default')
     parser.add_argument('--output_name', type=str, default="zeroshot")
     parser.add_argument('--only_llm', default=False, action='store_true')
 
