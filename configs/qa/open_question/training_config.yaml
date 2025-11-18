@@ -13,7 +13,7 @@ lr_scheduler_type: "cosine"  # Must be quoted string
 # Batch size and accumulation
 per_device_train_batch_size: 2
 per_device_eval_batch_size: 2
-gradient_accumulation_steps: 32  # Effective batch size = 4 * num_gpus * 8 (reduced from 32 due to unused encoder memory)
+gradient_accumulation_steps: 32  # Effective batch size = 4 * num_gpus * 32
 
 # Precision
 bf16: True

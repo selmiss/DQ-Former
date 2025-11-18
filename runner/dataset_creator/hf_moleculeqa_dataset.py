@@ -361,17 +361,21 @@ class HFMoleculeQACollator:
     Compatible with the original MoleculeQAHFCollator interface.
     """
     
-    def __init__(self, tokenizer, llm_version, pad_idx, encoder_types):
+    def __init__(self, tokenizer, llm_version, pad_idx, encoder_types, max_input_length=None):
         """
         Args:
             tokenizer: HuggingFace tokenizer
             llm_version: LLM version (llama2, llama3, qwen3, mistral, gemma)
             pad_idx: Padding index for UniMol
             encoder_types: List of encoder types
+            max_input_length: Maximum input token length for truncation (None = no truncation)
         """
         self.tokenizer = tokenizer
         self.llm_version = llm_version
         self.encoder_types = encoder_types
+        self.max_input_length = max_input_length
+        if max_input_length is not None:
+            logger.info(f"⚠️  Max input length set to {max_input_length} tokens. Sequences exceeding this will be truncated.")
         if 'unimol' in encoder_types:
             self.d3_collater = Mol3DCollater(pad_idx)
     
@@ -531,7 +535,8 @@ class HFMoleculeQACollator:
             messages_list,
             self.tokenizer,
             self.llm_version,
-            padding_side='left'
+            padding_side='left',
+            max_input_length=self.max_input_length
         )
         
         # Use batched gids (already properly offset for multi-molecule samples)
@@ -567,6 +572,7 @@ def create_hf_moleculeqa_datasets(
     mol_type: str = 'mol',
     cache_dir: Optional[str] = None,
     streaming: bool = False,
+    max_input_length: Optional[int] = None,
 ):
     """
     Factory function to create HF-based MoleculeQA datasets and collator.
@@ -586,6 +592,7 @@ def create_hf_moleculeqa_datasets(
         mol_type: Molecular representation type ('mol', 'SMILES', etc.)
         cache_dir: Optional cache directory for HuggingFace datasets
         streaming: If True, use streaming mode (useful for very large datasets)
+        max_input_length: Maximum input token length for truncation (None = no truncation)
     
     Returns:
         tuple: (datasets_dict, collator)
@@ -651,7 +658,8 @@ def create_hf_moleculeqa_datasets(
         tokenizer=tokenizer,
         llm_version=llm_version,
         pad_idx=pad_idx,
-        encoder_types=encoder_types
+        encoder_types=encoder_types,
+        max_input_length=max_input_length
     )
     
     logger.info("✅ Datasets ready!")

@@ -4,6 +4,7 @@ Pure HuggingFace implementation aligned with stage2_hf_dm.py pattern.
 """
 import os
 import json
+import logging
 import torch
 from collections import defaultdict
 from torch.utils.data import Dataset
@@ -13,6 +14,8 @@ from transformers import BatchEncoding
 
 from data_provider.collaters import Mol3DCollater
 from data_provider.tokenization_utils import batch_tokenize_messages_list
+
+logger = logging.getLogger(__name__)
 from utils.cache_utils import (
     get_cache_dir,
     get_cache_path,
@@ -99,10 +102,13 @@ class MoleculeQAHFCollator:
     Returns only tensors to avoid Accelerate device placement issues.
     Aligned with Stage2HFCollator pattern.
     """
-    def __init__(self, tokenizer, llama_version, pad_idx, encoder_types):
+    def __init__(self, tokenizer, llama_version, pad_idx, encoder_types, max_input_length=None):
         self.tokenizer = tokenizer
         self.llama_version = llama_version
         self.encoder_types = encoder_types
+        self.max_input_length = max_input_length
+        if max_input_length is not None:
+            logger.info(f"⚠️  Max input length set to {max_input_length} tokens. Sequences exceeding this will be truncated.")
         if 'unimol' in encoder_types:
             self.d3_collater = Mol3DCollater(pad_idx)
     
@@ -152,7 +158,8 @@ class MoleculeQAHFCollator:
             messages_list, 
             self.tokenizer,
             self.llama_version, 
-            padding_side='left'
+            padding_side='left',
+            max_input_length=self.max_input_length
         )
         text_batch = tokenized
         
@@ -191,6 +198,7 @@ def create_moleculeqa_dataset(
     entropy_gids_enable=False,
     use_cache=True,
     limit_samples=None,
+    max_input_length=None,
 ):
     """
     Factory function to create MoleculeQA dataset and collator for a single split.
@@ -278,7 +286,8 @@ def create_moleculeqa_dataset(
         tokenizer=tokenizer,
         llama_version=llama_version,
         pad_idx=unimol_dictionary.pad(),
-        encoder_types=encoder_types
+        encoder_types=encoder_types,
+        max_input_length=max_input_length
     )
     
     return dataset, collator
@@ -297,6 +306,7 @@ def create_moleculeqa_datasets(
     brics_gids_enable=False,
     entropy_gids_enable=False,
     use_cache=True,
+    max_input_length=None,
 ):
     """
     Factory function to create train/val/test datasets for MoleculeQA.
@@ -334,6 +344,7 @@ def create_moleculeqa_datasets(
         entropy_gids_enable=entropy_gids_enable,
         use_cache=use_cache,
         limit_samples=train_limit,
+        max_input_length=max_input_length,
     )
     
     # Create val dataset (using test split, inference mode)
@@ -350,6 +361,7 @@ def create_moleculeqa_datasets(
         entropy_gids_enable=entropy_gids_enable,
         use_cache=use_cache,
         limit_samples=val_limit,
+        max_input_length=max_input_length,
     )
     
     # Create test dataset (using test split, inference mode)
@@ -366,6 +378,7 @@ def create_moleculeqa_datasets(
         entropy_gids_enable=entropy_gids_enable,
         use_cache=use_cache,
         limit_samples=test_limit,
+        max_input_length=max_input_length,
     )
     
     datasets = {

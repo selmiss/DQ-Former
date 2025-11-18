@@ -94,6 +94,10 @@ class DataTrainingArguments:
         default=1.0,
         metadata={"help": "Fraction of training data to use (0.0-1.0). Useful for data efficiency experiments. Default: 1.0 (use all data)."}
     )
+    max_input_length: Optional[int] = field(
+        default=None,
+        metadata={"help": "Maximum input token length for truncation. Sequences exceeding this will be truncated to prevent GPU OOM. None means no truncation. Recommended: 1024-4096."}
+    )
 
 
 @dataclass

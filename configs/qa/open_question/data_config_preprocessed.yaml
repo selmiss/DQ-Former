@@ -21,6 +21,13 @@ training_ratio: 1
 # For reaction tasks: SELFIES in conversations + mol graph data
 mol_type: SELFIES
 max_eval_samples: 500
+
+# Maximum input token length (truncates sequences that exceed this limit)
+# Set this to prevent GPU memory issues. Based on analysis:
+# - Train set longest line: ~22.7K chars (approx 5.7K tokens with 4 chars/token)
+# - Test set longest line: ~10.8K chars (approx 2.7K tokens)
+# Recommended: 2048-4096 for training, can be higher for eval if GPU allows
+max_input_length: 2048
 # HuggingFace datasets options (optional)
 
 use_streaming: false  # Set to true for very large datasets

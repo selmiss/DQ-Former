@@ -5,6 +5,7 @@ Includes data caching for faster loading using DATA_CACHE_DIR from environment.
 """
 import os
 import json
+import logging
 import torch
 import pickle
 from collections import defaultdict
@@ -15,6 +16,8 @@ from transformers import BatchEncoding
 
 from data_provider.collaters import Mol3DCollater
 from data_provider.tokenization_utils import batch_tokenize_messages_list
+
+logger = logging.getLogger(__name__)
 
 # Get cache directory from environment variable (absolute path)
 # Fallback to data/.cache if not set
@@ -95,10 +98,13 @@ class FinetuneCollator:
     Pure HuggingFace data collator for Stage 2.
     Returns only tensors to avoid Accelerate device placement issues.
     """
-    def __init__(self, tokenizer, llm_version, pad_idx, encoder_types):
+    def __init__(self, tokenizer, llm_version, pad_idx, encoder_types, max_input_length=None):
         self.tokenizer = tokenizer
         self.llm_version = llm_version
         self.encoder_types = encoder_types
+        self.max_input_length = max_input_length
+        if max_input_length is not None:
+            logger.info(f"⚠️  Max input length set to {max_input_length} tokens. Sequences exceeding this will be truncated.")
         if 'unimol' in encoder_types:
             self.d3_collater = Mol3DCollater(pad_idx)
     
@@ -139,7 +145,8 @@ class FinetuneCollator:
             messages_list, 
             self.tokenizer,
             self.llm_version,
-            padding_side='left'
+            padding_side='left',
+            max_input_length=self.max_input_length
         )
         text_batch = tokenized
         
@@ -175,6 +182,7 @@ def create_finetune_dataset(
     brics_gids_enable=False,
     entropy_gids_enable=False,
     use_cache=True,
+    max_input_length=None,
 ):
     """
     Factory function to create Finetune dataset and collator.
@@ -262,7 +270,8 @@ def create_finetune_dataset(
         tokenizer=tokenizer,
         llm_version=llm_version,
         pad_idx=unimol_dictionary.pad(),
-        encoder_types=encoder_types
+        encoder_types=encoder_types,
+        max_input_length=max_input_length
     )
     
     return dataset, collator

@@ -213,6 +213,7 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
             mol_type=getattr(data_config, 'mol_type', 'mol'),
             cache_dir=getattr(data_config, 'cache_dir', None),
             streaming=getattr(data_config, 'use_streaming', False),
+            max_input_length=getattr(data_config, 'max_input_length', None),
         )
         
         train_dataset = datasets['train']
@@ -256,6 +257,7 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
             brics_gids_enable=model_args.brics_gids_enable,
             entropy_gids_enable=model_args.entropy_gids_enable,
             use_cache=True,
+            max_input_length=getattr(data_config, 'max_input_length', None),
         )
         
         train_dataset = datasets['train']
