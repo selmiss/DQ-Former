@@ -167,7 +167,7 @@ def read_csv_dir(
     """
     Read rows from a directory containing separate train/val/test CSV files.
     
-    Expected directory structure:
+    Expected directory structure (any subset of splits is acceptable):
         csv_dir/
             train.csv (or train_*.csv)
             valid.csv (or validation.csv, val.csv, valid_*.csv)
@@ -193,7 +193,11 @@ def read_csv_dir(
             
     Raises:
         NotADirectoryError: If csv_dir doesn't exist or isn't a directory
-        FileNotFoundError: If any required split file is missing
+        FileNotFoundError: If no valid split files are found
+        
+    Note:
+        At least one split file (train, val, or test) must be present.
+        Missing splits will be skipped gracefully.
     """
     if not os.path.isdir(csv_dir):
         raise NotADirectoryError(f"csv_dir not found or not a directory: {csv_dir}")
@@ -243,18 +247,20 @@ def read_csv_dir(
                     split_to_path[split] = matches[0]
                     break
 
-    missing = [s for s in ["train", "val", "test"] if s not in split_to_path]
-    if missing:
+    # Check if at least one split file was found
+    if not split_to_path:
         raise FileNotFoundError(
-            f"Could not locate CSV files for splits: {missing} in directory {csv_dir} or {search_dir}. "
+            f"Could not locate any CSV files for splits (train/val/test) in directory {csv_dir} or {search_dir}. "
             f"Looked for names: train.csv, valid.csv/validation.csv/val.csv, test.csv, "
             f"and patterns: train_*.csv, valid_*.csv, test_*.csv"
         )
 
-    # Read in order train -> val -> test
+    # Read available splits in order train -> val -> test
     rows_with_split: List[Tuple[Dict[str, str], str]] = []
     total_count = 0
     for split in ["train", "val", "test"]:
+        if split not in split_to_path:
+            continue  # Skip missing splits
         rows = read_csv_rows(
             split_to_path[split], smiles_column_name, target_column_name, None
         )
