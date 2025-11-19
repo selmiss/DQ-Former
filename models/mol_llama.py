@@ -26,6 +26,8 @@ from data_provider.collaters import Mol3DCollater
 import numpy as np
 from safetensors.torch import load_file as load_safetensors
 from pathlib import Path
+import json
+import glob
 
 logger = logging.getLogger(__name__)
 # Set to ERROR level to suppress warnings (INFO < WARNING < ERROR < CRITICAL)
@@ -806,9 +808,11 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
     def load_from_ckpt(self, ckpt_path, lora_init=False):
         """
         Load checkpoint from either PyTorch checkpoint or HuggingFace safetensors.
+        Supports both single files and directories with multiple safetensors shards.
         
         Args:
             ckpt_path: Path to checkpoint file (.ckpt, .pt, .pth for PyTorch or .safetensors for HuggingFace)
+                      or directory containing model.safetensors.index.json and shard files
         """
         logger.info(f"Loading from checkpoint: {ckpt_path}")
         
@@ -827,9 +831,46 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
                                             target_modules=['k_proj', 'v_proj', 'q_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj'])
                 self.llm = get_peft_model(self.llm, peft_config)
         
-        # Detect file type and load accordingly
-        if path.suffix == '.safetensors':
-            # Load HuggingFace safetensor format
+        # Check if input is a directory with multiple safetensors shards
+        if path.is_dir():
+            # Look for safetensors index file
+            index_files = glob.glob(str(path / "*.safetensors.index.json"))
+            if index_files:
+                # Load from index file
+                index_path = sorted(index_files)[0]
+                logger.info(f"Detected safetensors directory with index file: {index_path}")
+                
+                # Parse index file to get shard files
+                with open(index_path, 'r') as f:
+                    index_data = json.load(f)
+                weight_map = index_data.get('weight_map', {})
+                shard_files = sorted(set(weight_map.values()))
+                
+                # Load all shards and merge
+                state_dict_raw = {}
+                for shard_file in shard_files:
+                    shard_path = path / shard_file
+                    if not shard_path.exists():
+                        raise FileNotFoundError(f"Shard file not found: {shard_path}")
+                    logger.info(f"Loading shard: {shard_file}")
+                    shard_dict = load_safetensors(str(shard_path))
+                    state_dict_raw.update(shard_dict)
+                logger.info(f"Loaded {len(shard_files)} shard files, total {len(state_dict_raw)} parameters")
+            else:
+                # No index file, try to find safetensors files directly
+                safetensors_files = glob.glob(str(path / "*.safetensors"))
+                if safetensors_files:
+                    logger.info(f"Detected safetensors directory without index, found {len(safetensors_files)} files")
+                    state_dict_raw = {}
+                    for shard_file in sorted(safetensors_files):
+                        logger.info(f"Loading shard: {Path(shard_file).name}")
+                        shard_dict = load_safetensors(shard_file)
+                        state_dict_raw.update(shard_dict)
+                    logger.info(f"Loaded {len(safetensors_files)} shard files, total {len(state_dict_raw)} parameters")
+                else:
+                    raise ValueError(f"No safetensors files found in directory: {ckpt_path}")
+        elif path.suffix == '.safetensors':
+            # Load single HuggingFace safetensor file
             logger.info("Detected safetensors format")
             state_dict_raw = load_safetensors(ckpt_path)
         else:

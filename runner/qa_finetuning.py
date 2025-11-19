@@ -143,6 +143,7 @@ def main(model_args, training_args, data_config, test_mode=False, resume_from=No
                 "embed_dim": model_args.embed_dim,
                 "cross_attention_freq": model_args.cross_attention_freq,
                 "enable_lora": model_args.enable_lora_qformer,
+                "max_local_query": model_args.max_local_query,
             },
             graph_encoder_config={"local_q_only": model_args.local_q_only},
             blending_module_config={

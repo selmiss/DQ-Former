@@ -34,16 +34,16 @@ export TORCH_CUDA_ARCH_LIST="8.0"
 
 
 echo "=========================================="
-echo "Open Question DQ-Former Training"
+echo "Open Question DQ-Former After Finetuning"
 echo "=========================================="
 echo "BASE_DIR: $BASE_DIR"
 echo "=========================================="
 
 # Launch training with DeepSpeed
 CUDA_VISIBLE_DEVICES=0 python ${BASE_DIR}/runner/qa_finetuning.py \
-    --model_config_path ${BASE_DIR}/configs/qa/open_question/model_config.yaml \
-    --training_config_path ${BASE_DIR}/configs/qa/open_question/training_config.yaml \
-    --data_config_path ${BASE_DIR}/configs/qa/open_question/data_config_preprocessed.yaml
+    --model_config_path ${BASE_DIR}/configs/qa/open_question_after_ft/model_config.yaml \
+    --training_config_path ${BASE_DIR}/configs/qa/open_question_after_ft/training_config.yaml \
+    --data_config_path ${BASE_DIR}/configs/qa/open_question_after_ft/data_config_preprocessed.yaml
 
 echo "=========================================="
 echo "Training completed!"

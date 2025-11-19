@@ -146,7 +146,10 @@ class ModelArguments:
         default=8,
         metadata={"help": "Number of attention heads in blending module."}
     )
-    
+    max_local_query: int = field(
+        default=64,
+        metadata={"help": "Maximum number of local queries."}
+    )
     # Pretraining stage-specific model settings
     tune_gnn: bool = field(
         default=True,

@@ -3,10 +3,8 @@
 # NOTE: This task uses TEXT input (no graph encoder needed)
 
 # Pretrained checkpoint path (Stage 2 checkpoint for molecule design training)
-model_name_or_path: QizhiPei/biot5-base # Automatically loads Stage 2 full model checkpoint
-llm_backbone: QizhiPei/biot5-base
+model_name_or_path: checkpoints/mol_forward_v1/final_model
 
-baseline_type: llm_only
 # QFormer Configuration
 use_flash_attention: True
 use_dq_encoder: True  # No graph encoder for text-to-molecule task

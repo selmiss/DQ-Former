@@ -1,10 +1,8 @@
 # Training Configuration for Description-Guided Molecule Design Finetuning (HuggingFace TrainingArguments compatible)
 
 # Experiment naming
-run_name: open_question_biot5_zero_shot
+run_name: open_question_after_ft
 
-llm_baseline: True
-llm_model_path: QizhiPei/biot5-base
 # Training hyperparameters
 num_train_epochs: 5
 learning_rate: 1.0e-4  # Initial learning rate for molecule design finetuning
