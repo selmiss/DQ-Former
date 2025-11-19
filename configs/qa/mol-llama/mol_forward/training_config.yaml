@@ -1,11 +1,11 @@
 # Training Configuration for Forward Reaction Prediction Finetuning (HuggingFace TrainingArguments compatible)
 
 # Experiment naming
-run_name: mol_forward_mollama
+run_name: mol_forward_mollama_long
 
 # Training hyperparameters
 num_train_epochs: 5
-learning_rate: 1.0e-4  # Initial learning rate for MoleculeQA finetuning
+learning_rate: 1.0e-3
 weight_decay: 0.05
 warmup_steps: 50
 lr_scheduler_type: "cosine"  # Must be quoted string
