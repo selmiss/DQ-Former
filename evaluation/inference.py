@@ -108,6 +108,8 @@ def main(args):
             entropy_gids_enable=args.entropy_gids_enable,
             enable_blending=args.enable_blending,
             freeze_llm=args.freeze_llm,
+            global_q_budget=args.global_q_budget,
+            local_q_budget=args.local_q_budget,
         )
         model.load_from_ckpt(args.qformer_path)
     elif args.baseline_type == 'mollama':
@@ -362,5 +364,7 @@ if __name__ == '__main__':
     parser.add_argument('--freeze_llm', default=False, action='store_true')
     parser.add_argument('--baseline_type', type=str, default=None, choices=['mollama', 'llm_lora', 'llm_only'])
     parser.add_argument('--lora_path', type=str, default=None)
+    parser.add_argument('--global_q_budget', type=int, default=None)
+    parser.add_argument('--local_q_budget', type=int, default=None)
     args = parser.parse_args()
     main(args)

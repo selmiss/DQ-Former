@@ -7,13 +7,13 @@ run_name: molqa_v2_scaffold
 num_train_epochs: 5
 learning_rate: 1.0e-4  # Initial learning rate for MoleculeQA finetuning
 weight_decay: 0.05
-warmup_steps: 100
+warmup_steps: 30
 lr_scheduler_type: "cosine"  # Must be quoted string
 
 # Batch size and accumulation
 per_device_train_batch_size: 4
 per_device_eval_batch_size: 4
-gradient_accumulation_steps: 16  # Effective batch size = 4 * num_gpus * 32
+gradient_accumulation_steps: 32  # Effective batch size = 4 * num_gpus * 32
 
 # Precision
 bf16: True
@@ -30,7 +30,7 @@ metric_for_best_model: "eval_accuracy"  # For QA tasks; use "eval_mae" for prope
 greater_is_better: True  # True for accuracy, False for MAE
 
 # Logging
-logging_steps: 50
+logging_steps: 20
 report_to:
   - wandb
 

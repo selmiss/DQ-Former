@@ -99,6 +99,8 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
         load_ckpt_before_peft=False,
         ckpt_path=None,
         llm_only=False,  # New parameter: skip encoder for text-only tasks
+        global_q_budget=None,
+        local_q_budget=None,
     ):
         super().__init__(config)
         self.config = config
@@ -116,6 +118,8 @@ class DQMolLLaMA(MolLLaMAPreTrainedModel):
                 brics_gids_enable = brics_gids_enable,
                 entropy_gids_enable = entropy_gids_enable,
                 enable_blending = enable_blending,
+                global_q_budget=global_q_budget,
+                local_q_budget=local_q_budget,
             )
             self.local_q_only = local_q_only
             self.brics_gids_enable = brics_gids_enable

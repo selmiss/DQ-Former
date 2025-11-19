@@ -44,6 +44,8 @@ class DQMolLLaMAEncoder(nn.Module):
         enable_blending=False,
         brics_gids_enable=False,
         entropy_gids_enable=False,
+        global_q_budget=None,
+        local_q_budget=None,
     ):
         super().__init__()
         self.num_query_tokens = qformer_config.num_query_tokens
@@ -54,6 +56,13 @@ class DQMolLLaMAEncoder(nn.Module):
         self.brics_gids_enable = brics_gids_enable
         self.entropy_gids_enable = entropy_gids_enable
         self.use_dq_encoder = qformer_config.use_dq_encoder
+
+        self.global_q_budget = global_q_budget
+        self.local_q_budget = local_q_budget
+        print("Activated global and local q budget==================================================")
+        print(f"global_q_budget: {self.global_q_budget}, local_q_budget: {self.local_q_budget}")
+        print("==================================================")
+
         print(f"local_q_only: {self.local_q_only}")
 
         # Initialize graph encoders
@@ -446,6 +455,13 @@ class DQMolLLaMAEncoder(nn.Module):
         if self.use_dq_encoder:
             local_q = self.local_q_proj(pooled_frags)           # [B, N, D]
             local_q_mask = frag_mask                         # [B, N]  True=keep / 1
+            
+            # Apply local_q_budget if set and smaller than current number of local Q tokens
+            if self.local_q_budget is not None:
+                num_local_q = local_q_mask.shape[1]
+                if self.local_q_budget < num_local_q:
+                    # Mask tokens from right to left, keeping leftmost tokens active
+                    local_q_mask[:, self.local_q_budget:] = False
         else:
             local_q = None
             local_q_mask = None
@@ -453,6 +469,13 @@ class DQMolLLaMAEncoder(nn.Module):
         # ---------- (B) 取静态 Global-Q ----------
         static_q = self.query_tokens.expand(B, -1, -1)    # [B, Q_fixed, D]
         static_q_mask = self.static_q_mask.expand(B, -1)  # [B, Q_fixed]
+        
+        # Apply global_q_budget if set and smaller than current number of global Q tokens
+        if self.global_q_budget is not None:
+            num_global_q = static_q_mask.shape[1]
+            if self.global_q_budget < num_global_q:
+                # Mask tokens from right to left, keeping leftmost tokens active
+                static_q_mask[:, self.global_q_budget:] = False
 
         # ---------- (C) 合并两类 Query ----------
         if self.local_q_only:
