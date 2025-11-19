@@ -17,7 +17,6 @@ python utils/calculate_overlap.py \
     data/mol_prop/test.jsonl \
     data/mol_gen/test.jsonl \
   --train \
-    data/overlap/training/pretrain.txt \
     data/overlap/training/finetune.txt \
   --output data/overlap/results/all_overlap.txt
 

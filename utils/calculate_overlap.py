@@ -292,9 +292,9 @@ def main() -> int:
     print(f"{'Test Dataset':<60} {'Total':>12} {'Overlap':>12} {'Rate':>10}")
     print("-" * 80)
     for result in results:
-        test_name = Path(result['test_file']).name
+        test_name = result['test_file']
         if len(test_name) > 58:
-            test_name = test_name[:55] + "..."
+            test_name = "..." + test_name[-(58-3):]
         print(
             f"{test_name:<60} {result['total_test_smiles']:>12,} "
             f"{result['overlap_count']:>12,} {result['overlap_rate']:>9.2%}"
@@ -318,9 +318,9 @@ def main() -> int:
     output_lines.append(f"{'Test Dataset':<60} {'Total':>12} {'Overlap':>12} {'Rate':>10}")
     output_lines.append("-" * 80)
     for result in results:
-        test_name = Path(result['test_file']).name
+        test_name = result['test_file']
         if len(test_name) > 58:
-            test_name = test_name[:55] + "..."
+            test_name = "..." + test_name[-(58-3):]
         output_lines.append(
             f"{test_name:<60} {result['total_test_smiles']:>12,} "
             f"{result['overlap_count']:>12,} {result['overlap_rate']:>9.2%}"
