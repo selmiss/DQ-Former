@@ -109,7 +109,7 @@ def load_training_smiles(txt_files: List[str]) -> Set[str]:
     return training_set
 
 
-def extract_test_smiles(jsonl_path: str, smiles_key: str = "smiles") -> List[str]:
+def extract_test_smiles(jsonl_path: str, smiles_key: str = "smiles") -> List[tuple]:
     """Extract SMILES from a test JSONL file.
     
     Args:
@@ -117,7 +117,9 @@ def extract_test_smiles(jsonl_path: str, smiles_key: str = "smiles") -> List[str
         smiles_key: Key name for SMILES in each JSON object (default: "smiles")
     
     Returns:
-        List of SMILES strings (may contain duplicates)
+        List of tuples: (smiles_value, is_list)
+        - smiles_value: either a string (single SMILES) or list of strings (multiple SMILES)
+        - is_list: boolean indicating if this is a list of SMILES
     """
     smiles_list = []
     file_name = Path(jsonl_path).name
@@ -150,10 +152,22 @@ def extract_test_smiles(jsonl_path: str, smiles_key: str = "smiles") -> List[str
                 record = json.loads(line)
                 if smiles_key in record:
                     smiles_value = record[smiles_key]
-                    if isinstance(smiles_value, str) and smiles_value.strip():
-                        smiles_list.append(smiles_value.strip())
+                    if isinstance(smiles_value, list):
+                        # Handle list of SMILES
+                        filtered_list = []
+                        for item in smiles_value:
+                            if isinstance(item, str) and item.strip():
+                                filtered_list.append(item.strip())
+                            elif item is not None:
+                                filtered_list.append(str(item))
+                        if filtered_list:
+                            smiles_list.append((filtered_list, True))
+                    elif isinstance(smiles_value, str) and smiles_value.strip():
+                        # Handle single SMILES string
+                        smiles_list.append((smiles_value.strip(), False))
                     elif smiles_value is not None:
-                        smiles_list.append(str(smiles_value))
+                        # Fallback: convert to string
+                        smiles_list.append((str(smiles_value), False))
             except json.JSONDecodeError:
                 pass
             except Exception:
@@ -162,37 +176,75 @@ def extract_test_smiles(jsonl_path: str, smiles_key: str = "smiles") -> List[str
     return smiles_list
 
 
-def calculate_overlap(test_smiles: List[str], training_set: Set[str]) -> Dict[str, float]:
+def calculate_overlap(test_smiles: List[tuple], training_set: Set[str]) -> Dict[str, float]:
     """Calculate overlap statistics between test and training SMILES.
     
     Args:
-        test_smiles: List of SMILES from test set (may contain duplicates)
+        test_smiles: List of tuples (smiles_value, is_list) from test set
         training_set: Set of canonicalized training SMILES
     
     Returns:
         Dictionary with overlap statistics
     """
-    # Canonicalize test SMILES
+    # Canonicalize test SMILES and handle list vs single SMILES
     print("Canonicalizing test SMILES...")
-    canonicalized_test = []
+    canonicalized_test_all = []  # All SMILES for total count
+    canonicalized_test_overlap = []  # Only SMILES that count for overlap
     invalid_count = 0
+    records_with_lists = 0
+    records_overlapping_lists = 0
     
-    for smiles in tqdm(test_smiles, desc="Canonicalizing", unit="SMILES", leave=False):
-        canonical = canonicalize_smiles(smiles)
-        if canonical is not None:
-            canonicalized_test.append(canonical)
+    for smiles_data, is_list in tqdm(test_smiles, desc="Canonicalizing", unit="records", leave=False):
+        if is_list:
+            # Handle list of SMILES: all must overlap for the record to count as overlapping
+            records_with_lists += 1
+            canonicalized_list = []
+            all_valid = True
+            
+            for smiles in smiles_data:
+                canonical = canonicalize_smiles(smiles)
+                if canonical is not None:
+                    canonicalized_list.append(canonical)
+                else:
+                    all_valid = False
+                    invalid_count += 1
+            
+            if all_valid and len(canonicalized_list) > 0:
+                # Add all SMILES to total count
+                canonicalized_test_all.extend(canonicalized_list)
+                
+                # Check if all SMILES in the list are in training set
+                all_overlap = all(canonical in training_set for canonical in canonicalized_list)
+                if all_overlap:
+                    records_overlapping_lists += 1
+                    # Count all SMILES in the list as overlapping
+                    canonicalized_test_overlap.extend(canonicalized_list)
+                # If not all overlap, don't add to overlap list
+            # Invalid SMILES in list are already counted in invalid_count
         else:
-            invalid_count += 1
+            # Handle single SMILES string (original behavior)
+            canonical = canonicalize_smiles(smiles_data)
+            if canonical is not None:
+                canonicalized_test_all.append(canonical)
+                # Only add to overlap list if it overlaps with training set
+                if canonical in training_set:
+                    canonicalized_test_overlap.append(canonical)
+            else:
+                invalid_count += 1
     
     if invalid_count > 0:
         print(f"[WARNING] {invalid_count} invalid SMILES in test set")
+    if records_with_lists > 0:
+        print(f"[INFO] Found {records_with_lists} records with list SMILES, "
+              f"{records_overlapping_lists} had all SMILES overlapping")
     
     # Calculate overlap
-    test_set = set(canonicalized_test)
-    overlap_set = test_set & training_set
+    test_set_all = set(canonicalized_test_all)
+    test_set_overlap = set(canonicalized_test_overlap)
+    overlap_set = test_set_overlap & training_set
     
-    total_test = len(canonicalized_test)
-    unique_test = len(test_set)
+    total_test = len(canonicalized_test_all)
+    unique_test = len(test_set_all)
     overlap_count = len(overlap_set)
     
     if total_test == 0:
@@ -205,7 +257,9 @@ def calculate_overlap(test_smiles: List[str], training_set: Set[str]) -> Dict[st
         "unique_test_smiles": unique_test,
         "overlap_count": overlap_count,
         "overlap_rate": overlap_rate,
-        "invalid_count": invalid_count
+        "invalid_count": invalid_count,
+        "records_with_lists": records_with_lists,
+        "records_overlapping_lists": records_overlapping_lists
     }
 
 
@@ -284,6 +338,9 @@ def main() -> int:
         print(f"  Overlap rate:             {stats['overlap_rate']:.4%}")
         if stats['invalid_count'] > 0:
             print(f"  Invalid SMILES:           {stats['invalid_count']:,}")
+        if stats.get('records_with_lists', 0) > 0:
+            print(f"  Records with list SMILES: {stats['records_with_lists']:,}")
+            print(f"  Records (all SMILES overlap): {stats['records_overlapping_lists']:,}")
     
     # Print summary table to console
     print(f"\n{'='*80}")
@@ -340,6 +397,9 @@ def main() -> int:
         output_lines.append(f"  Overlap rate:             {result['overlap_rate']:.4%}")
         if result['invalid_count'] > 0:
             output_lines.append(f"  Invalid SMILES:           {result['invalid_count']:,}")
+        if result.get('records_with_lists', 0) > 0:
+            output_lines.append(f"  Records with list SMILES: {result['records_with_lists']:,}")
+            output_lines.append(f"  Records (all SMILES overlap): {result['records_overlapping_lists']:,}")
     
     output_lines.append("\n" + "=" * 80)
     
