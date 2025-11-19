@@ -3,7 +3,7 @@
 : "${DATA_DIR:?Environment variable DATA_DIR not set}"
 
 export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
-export CUDA_VISIBLE_DEVICES=4
+export CUDA_VISIBLE_DEVICES=6
 
 # List of tasks to evaluate
 TASKS=${TASKS:-"bace bbbp pampa clintox hia pgp ames dili herg"}

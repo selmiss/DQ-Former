@@ -4,10 +4,10 @@
 : "${HF_HOME:?Environment variable HF_HOME not set}"
 
 export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=6
 
 # List of tasks to evaluate
-TASKS=${TASKS:-"bace bbbp pampa clintox hia pgp ames dili herg"}
+TASKS=${TASKS:-"hiv bace bbbp pampa clintox hia pgp ames dili herg"}
 
 # List of prompt types to use (all 13 prompts)
 PROMPT_TYPES=${PROMPT_TYPES:-"default_variant_1 default_variant_2 default_variant_3 rationale_variant_1 rationale_variant_2 task_info_variant_1 task_info_variant_2 binary_instruction confidence_instruction checklist_instruction"}
