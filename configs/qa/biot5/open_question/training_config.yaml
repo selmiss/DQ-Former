@@ -1,7 +1,7 @@
 # Training Configuration for Description-Guided Molecule Design Finetuning (HuggingFace TrainingArguments compatible)
 
 # Experiment naming
-run_name: open_question_zeroshot
+run_name: open_question_v1
 
 # Training hyperparameters
 num_train_epochs: 5

@@ -1,7 +1,7 @@
 # Training Configuration for Description-Guided Molecule Design Finetuning (HuggingFace TrainingArguments compatible)
 
 # Experiment naming
-run_name: open_question_zeroshot
+run_name: open_question_mol-llama_zeroshot
 
 # Training hyperparameters
 num_train_epochs: 5
@@ -52,7 +52,7 @@ data_seed: 0
 # Checkpoint loading
 # Set to True for zero-shot evaluation without DeepSpeed (num_train_epochs=0)
 # Set to False when using ZeRO Stage 3 with training (parameters are partitioned)
-load_ckpt_before_peft: True  # Works with num_train_epochs=0 (no DeepSpeed)
+load_ckpt_before_peft: False  # Works with num_train_epochs=0 (no DeepSpeed)
 
 # DeepSpeed Configuration:
 # ========================
