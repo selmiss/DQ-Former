@@ -4,6 +4,6 @@
 
 
 export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
-export CUDA_VISIBLE_DEVICES=2
+export CUDA_VISIBLE_DEVICES=6
 
-python ${BASE_DIR}/trainer/entropy_model/train.py
+python ${BASE_DIR}/runner/entropy_model/train.py

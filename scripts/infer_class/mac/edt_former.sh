@@ -18,7 +18,6 @@ for task_name in ${TASKS}; do
     
     for prompt_type in ${PROMPT_TYPES}; do
         echo "Running ${task_name} with prompt type: ${prompt_type}"
-        
         python ${BASE_DIR}/evaluation/inference.py \
             --pretrained_model_name_or_path unsloth/Llama-3.1-8B-Instruct \
             --tokenizer_path ${BASE_DIR}/checkpoints/edt_former_s2_large/final_model \

@@ -5,10 +5,18 @@ from typing import Dict
 from tokenizer import tokenize_atoms
 
 class SmilesAtomDataset(Dataset):
-    def __init__(self, json_path: str, vocab: Dict[str,int], max_len: int = 128):
+    def __init__(self, data_or_path, vocab: Dict[str,int], max_len: int = 128):
         self.vocab = vocab
         self.pad_id = vocab["<pad>"]; self.bos_id = vocab["<bos>"]; self.eos_id = vocab["<eos>"]
-        data = json.loads(open(json_path).read())
+        
+        # Accept either a list of data or a file path
+        if isinstance(data_or_path, str):
+            print(f"Loading data from {data_or_path}...")
+            with open(data_or_path, 'r') as f:
+                data = json.load(f)
+        else:
+            data = data_or_path
+        
         self.samples = []
         for item in data:
             atoms = tokenize_atoms(item["smiles"])

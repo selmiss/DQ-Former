@@ -16,7 +16,7 @@ else
 fi
 
 # Configuration
-export GPUs="6,7"  # GPU IDs to use for MoleculeQA training
+export GPUs="5,6"  # GPU IDs to use for MoleculeQA training
 export MASTER_PORT=29500  # Master port for distributed training
 
 # Set CUDA architecture to avoid compilation warnings

@@ -60,7 +60,6 @@ def score_batch(smiles_batch, ckpt_dir, vocab_path="vocab.txt", device=None):
         one_minus_pmax.append((1 - pmax[i, :valid_len]).cpu())
     return ent, one_minus_pmax
 
-
 def plot_entropy_from_atoms(atom_list, entropy, title=None, savepath=None):
     """
     Plot entropy values given atom symbols and entropy list.
