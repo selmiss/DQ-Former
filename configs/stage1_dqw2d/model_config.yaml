@@ -1,0 +1,24 @@
+# Model Configuration for Stage 1
+# These parameters define the model architecture
+
+# QFormer Configuration
+use_flash_attention: True
+use_dq_encoder: True
+num_query_tokens: 32
+embed_dim: 512
+cross_attention_freq: 1
+
+# Graph Encoder Configuration
+local_q_only: False
+
+# Blending Module Configuration
+enable_blending: True
+num_layers: 8
+num_heads: 8
+
+# Training-specific model settings
+tune_gnn: False
+temperature: 0.1
+brics_gids_enable: True
+entropy_gids_enable: True
+

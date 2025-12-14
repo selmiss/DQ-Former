@@ -1,0 +1,32 @@
+# Data Configuration for MoleculeQA with Preprocessed Data
+# This configuration uses preprocessed datasets for faster training
+
+# Preprocessed dataset settings
+use_preprocessed: true
+
+# Path to preprocessed data
+# Can be:
+#   - Local directory: 'data/mol_qa/' (expects train.jsonl and test.jsonl)
+#   - HuggingFace Hub repo: 'username/moleculeqa-preprocessed'
+preprocessed_data: data/mol_qa/
+
+# Task type: 'qa' (multiple choice), 'generation' (captioning), or 'property' (regression)
+task_type: qa
+
+# Molecular representation type
+# Options: 'mol', 'SMILES', 'SMILES,mol', 'SELFIES', 'SMILES,<graph>'
+mol_type: SMILES,mol
+
+# HuggingFace datasets options (optional)
+use_streaming: false  # Set to true for very large datasets
+cache_dir: null       # Optional: specify custom cache directory
+
+# Evaluation settings
+# max_eval_samples: null  # Limit evaluation to N samples for faster training (null = use all)
+# random_seed: 42        # Random seed for sampling eval samples
+
+# Legacy fields (for fallback to original data loading if needed)
+root: data/moleculeqa/
+num_workers: 0
+batch_size: 4
+

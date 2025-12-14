@@ -1,0 +1,77 @@
+# Training Configuration for Description-Guided Molecule Design Finetuning (HuggingFace TrainingArguments compatible)
+
+# Experiment naming
+run_name: mol_design_mollama
+
+
+# Training hyperparameters
+num_train_epochs: 5
+learning_rate: 1.0e-4  # Initial learning rate for molecule design finetuning
+weight_decay: 0.05
+warmup_steps: 100
+lr_scheduler_type: "cosine"  # Must be quoted string
+
+# Batch size and accumulation
+per_device_train_batch_size: 2
+per_device_eval_batch_size: 2
+gradient_accumulation_steps: 32  # Effective batch size = 4 * num_gpus * 8 (reduced from 32 due to unused encoder memory)
+
+# Precision
+bf16: True
+fp16: False
+
+# Checkpointing and evaluation
+save_strategy: "epoch"  # No saving during zero-shot evaluation
+save_steps: 5
+save_total_limit: 3
+eval_strategy: "epoch"  # IMPORTANT: Set to "no" for ZeRO Stage 2 (eval during training requires Stage 3)
+eval_steps: 1
+# load_best_model_at_end: False
+metric_for_best_model: "eval_exact"  # For reaction tasks: exact match accuracy
+greater_is_better: True  # True for accuracy metrics
+
+# Logging
+logging_steps: 5
+report_to:
+  - wandb
+
+# DataLoader settings
+dataloader_num_workers: 4  # Reduced to avoid multiprocessing issues with complex data
+dataloader_persistent_workers: False  # Disabled to prevent worker hanging
+dataloader_pin_memory: True
+dataloader_drop_last: True
+dataloader_prefetch_factor: null
+remove_unused_columns: False  # IMPORTANT: Keep our custom columns
+
+# Distributed training
+ddp_find_unused_parameters: False
+
+# Reproducibility
+seed: 0
+data_seed: 0
+
+# Checkpoint loading
+# Set to True for zero-shot evaluation without DeepSpeed (num_train_epochs=0)
+# Set to False when using ZeRO Stage 3 with training (parameters are partitioned)
+load_ckpt_before_peft: Flase  # Works with num_train_epochs=0 (no DeepSpeed)
+
+# DeepSpeed Configuration:
+# ========================
+# Automatic Disabling (num_train_epochs=0):
+#   - When num_train_epochs=0, DeepSpeed is AUTOMATICALLY DISABLED
+#   - This enables pure evaluation/inference without distributed training overhead
+#   - Works with load_ckpt_before_peft=True (set above)
+#   - Command: bash scripts/qa/mol_design.sh (any stage is ignored)
+#
+# ZeRO Stage 3 (For training with evaluation):
+#   - Use when: num_train_epochs > 0 AND eval_strategy="steps"/"epoch"
+#   - Supports periodic evaluation during training
+#   - Requires: load_ckpt_before_peft=False
+#   - Command: bash scripts/qa/mol_design.sh 3
+#
+# ZeRO Stage 2 (For training without evaluation):
+#   - Use when: num_train_epochs > 0 AND eval_strategy="no"
+#   - Faster training, no evaluation support
+#   - Command: bash scripts/qa/mol_design.sh 2
+
+

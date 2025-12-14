@@ -1,0 +1,15 @@
+# Data Configuration for Molecular Property Prediction
+
+# Data paths
+root: data/Molecule-oriented_Instructions/property_prediction_full/
+
+# Task type: 'qa' (multiple choice), 'generation' (captioning), or 'property' (regression)
+task_type: property
+
+# Molecular representation type
+# Options: 'mol', 'SMILES', 'SMILES,mol', 'SELFIES', 'SMILES,<graph>'
+mol_type: SMILES,mol
+
+# Legacy fields (kept for compatibility, not used in new HF approach)
+num_workers: 16
+batch_size: 4

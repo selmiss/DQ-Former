@@ -1,0 +1,38 @@
+# Model Configuration for Molecular Property Prediction
+# These parameters define the model architecture
+
+# Pretrained checkpoint path (Stage 2 checkpoint for property prediction training)
+model_name_or_path: checkpoints/stage2_dqw2d/final_model  # Automatically loads Stage 2 full model checkpoint
+
+# QFormer Configuration
+use_flash_attention: True
+use_dq_encoder: True
+num_query_tokens: 16
+embed_dim: 512
+cross_attention_freq: 1
+
+# Graph Encoder Configuration
+local_q_only: False
+
+# Blending Module Configuration
+enable_blending: True
+num_layers: 8
+num_heads: 8
+
+# LLM Configuration
+llm_backbone: null  # Optional: override default LLM model (e.g., "meta-llama/Meta-Llama-3-8B")
+freeze_llm: False  # For property prediction finetuning, we typically don't freeze LLM
+enable_lora_qformer: False
+
+# Training-specific model settings
+tune_gnn: False
+temperature: 0.1
+enable_flash: True  # Flash attention for LLM
+brics_gids_enable: True
+entropy_gids_enable: True
+
+# Zero-shot evaluation mode
+# If True: Load checkpoint, skip training, evaluate directly (requires model_name_or_path)
+# If False: Normal training mode (load checkpoint, train, then evaluate)
+zero_shot: False
+

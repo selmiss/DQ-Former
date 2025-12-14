@@ -21,25 +21,14 @@ from torch.nn import CrossEntropyLoss
 import torch.nn.functional as F
 
 from transformers.activations import ACT2FN
-from transformers.file_utils import (
-    ModelOutput,
-)
 from transformers.modeling_outputs import (
     BaseModelOutputWithPastAndCrossAttentions,
     BaseModelOutputWithPoolingAndCrossAttentions,
     CausalLMOutputWithCrossAttentions,
     MaskedLMOutput,
-    MultipleChoiceModelOutput,
-    NextSentencePredictorOutput,
-    QuestionAnsweringModelOutput,
-    SequenceClassifierOutput,
-    TokenClassifierOutput,
 )
 from transformers.modeling_utils import (
     PreTrainedModel,
-    apply_chunking_to_forward,
-    find_pruneable_heads_and_indices,
-    prune_linear_layer,
 )
 from transformers.utils import logging
 from transformers.models.bert.configuration_bert import BertConfig
@@ -48,6 +37,98 @@ from flash_attn.bert_padding import unpad_input, pad_input
 from flash_attn.flash_attn_interface import flash_attn_varlen_qkvpacked_func
 
 logger = logging.get_logger(__name__)
+
+def apply_chunking_to_forward(forward_fn, chunk_size, chunk_dim, *input_tensors):
+    """
+    This function chunks the input_tensors into smaller input tensor parts of size chunk_size over dimension chunk_dim.
+    It then applies forward_fn to each chunk independently to save memory.
+    
+    If chunk_size is 0, no chunking is performed.
+    """
+    assert len(input_tensors) > 0, "input_tensors must have at least one element"
+    
+    # If chunk_size is 0, apply function directly
+    if chunk_size == 0:
+        return forward_fn(*input_tensors)
+    
+    # Get the number of chunks
+    num_chunks = input_tensors[0].shape[chunk_dim] // chunk_size
+    if input_tensors[0].shape[chunk_dim] % chunk_size != 0:
+        num_chunks += 1
+    
+    output_chunks = []
+    for i in range(num_chunks):
+        # Get chunk for each input tensor
+        start_idx = i * chunk_size
+        end_idx = min((i + 1) * chunk_size, input_tensors[0].shape[chunk_dim])
+        
+        # Create slice for the chunk dimension
+        chunk_slice = [slice(None)] * len(input_tensors[0].shape)
+        chunk_slice[chunk_dim] = slice(start_idx, end_idx)
+        chunk_slice = tuple(chunk_slice)
+        
+        # Apply slice to all input tensors
+        input_chunks = [tensor[chunk_slice] for tensor in input_tensors]
+        
+        # Apply forward function to chunks
+        output_chunk = forward_fn(*input_chunks)
+        output_chunks.append(output_chunk)
+    
+    # Concatenate output chunks
+    return torch.cat(output_chunks, dim=chunk_dim)
+
+def find_pruneable_heads_and_indices(heads, n_heads, head_size, already_pruned_heads):
+    """
+    Finds the heads and their indices that can be pruned.
+    
+    Args:
+        heads: List of head indices to prune (0-indexed)
+        n_heads: Number of attention heads
+        head_size: Size of each attention head
+        already_pruned_heads: Set of already pruned heads
+    
+    Returns:
+        heads to prune and their indices
+    """
+    mask = torch.ones(n_heads, head_size)
+    heads = set(heads) - already_pruned_heads
+    for head in heads:
+        head = head - sum(1 if h < head else 0 for h in already_pruned_heads)
+        mask[head] = 0
+    mask = mask.view(-1).contiguous().eq(1)
+    index = torch.arange(len(mask))[mask].long()
+    return heads, index
+
+def prune_linear_layer(layer, index, dim=0):
+    """
+    Prune a linear layer to keep only entries in index.
+    
+    Args:
+        layer: The linear layer to prune
+        index: The indices to keep
+        dim: The dimension to prune (0 or 1)
+    
+    Returns:
+        Pruned layer
+    """
+    index = index.to(layer.weight.device)
+    W = layer.weight.index_select(dim, index).clone().detach()
+    if layer.bias is not None:
+        if dim == 1:
+            b = layer.bias.clone().detach()
+        else:
+            b = layer.bias[index].clone().detach()
+    new_size = list(layer.weight.size())
+    new_size[dim] = len(index)
+    new_layer = nn.Linear(new_size[1], new_size[0], bias=layer.bias is not None).to(layer.weight.device)
+    new_layer.weight.requires_grad = False
+    new_layer.weight.copy_(W.contiguous())
+    new_layer.weight.requires_grad = True
+    if layer.bias is not None:
+        new_layer.bias.requires_grad = False
+        new_layer.bias.copy_(b.contiguous())
+        new_layer.bias.requires_grad = True
+    return new_layer
 
 def prepare_sdpa_mask(attn_mask: torch.Tensor, qlen: int) -> torch.Tensor | None:
     """

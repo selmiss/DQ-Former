@@ -1,0 +1,37 @@
+# Data configuration for Stage 2 finetuning with PREPROCESSED datasets
+# This config uses the new preprocessed dataset loading system for faster training
+
+# Original data root (still needed as fallback)
+root: data/Mol-LLaMA-Instruct/
+
+# Data types for finetuning (used only with original loader)
+data_types:
+  - comprehensive_conversations
+  - detailed_structural_descriptions
+  - structure2chemical_features_relationships
+  - structure2biological_features_relationships
+
+# NEW: Use preprocessed datasets
+use_preprocessed: true
+
+# NEW: Path to preprocessed data directory (with train.jsonl/val.jsonl) or HuggingFace Hub repo
+# HuggingFace automatically detects whether it's local or Hub!
+preprocessed_data: data/finetune/
+
+# Examples:
+# Local directory:  preprocessed_data: data/finetune/comprehensive_conversations  (contains train.jsonl and val.jsonl)
+# HF Hub:          preprocessed_data: username/finetune-data-preprocessed
+
+# NEW: Validation set ratio if val.jsonl doesn't exist (default: 0.1)
+# The loader will automatically split train.jsonl if no val.jsonl is found
+val_ratio: 0.01
+
+# NEW: Random seed for data splitting (default: 42)
+random_seed: 42
+
+# NEW: Enable streaming mode for very large datasets (optional)
+# use_streaming: false
+
+# NEW: Cache directory for HuggingFace datasets (optional)
+# cache_dir: /path/to/cache
+

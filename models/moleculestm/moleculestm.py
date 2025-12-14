@@ -5,9 +5,7 @@ from torch_geometric.nn import (MessagePassing, global_add_pool,
                                 global_max_pool, global_mean_pool)
 from torch_geometric.nn.inits import glorot, zeros
 from torch_geometric.utils import add_self_loops, softmax, degree, to_dense_batch
-from torch_scatter import scatter_add
 from models.moleculestm.mol_encoder import AtomEncoder, BondEncoder
-from collections import OrderedDict
 
 
 class GINConv(MessagePassing):

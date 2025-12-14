@@ -13,7 +13,7 @@ if PROJECT_ROOT not in sys.path:
 
 from data_provider.generate_from_csv import generate_conformer  # noqa: E402
 from utils.patching_preprocess import brics_ids_from_smiles
-from trainer.entropy_model.entropy_process import group_ids_by_entropy
+from runner.entropy_model.entropy_process import group_ids_by_entropy
 
 import selfies as sf  # type: ignore
 

@@ -1,0 +1,42 @@
+# Model Configuration for Forward Reaction Prediction Finetuning
+# These parameters define the model architecture
+
+# NOTE: For mol-llama baseline, model_name_or_path is the BASE LLM model (not a full checkpoint)
+# The lora_path specifies additional adapters/weights to load on top
+model_name_or_path: unsloth/Llama-3.1-8B-Instruct # Base LLM for mol-llama baseline
+
+baseline_type: mollama
+lora_path: ../hf_cache/hub/models--DongkiKim--Mol-Llama-3.1-8B-Instruct/snapshots/dd99e6ea328e01d713ac31aaad017074a6126483/model.safetensors
+lora_init: True
+# QFormer Configuration
+use_flash_attention: True
+use_dq_encoder: False
+num_query_tokens: 32
+embed_dim: 512
+cross_attention_freq: 1
+
+# Graph Encoder Configuration
+local_q_only: False
+
+# Blending Module Configuration
+enable_blending: True
+num_layers: 8
+num_heads: 8
+
+# LLM Configuration
+llm_backbone: null  # Optional: override default LLM model (e.g., "meta-llama/Meta-Llama-3-8B")
+freeze_llm: True  # For forward reaction finetuning, we typically don't freeze LLM
+enable_lora_qformer: False
+
+# Training-specific model settings
+tune_gnn: False
+temperature: 0.1
+enable_flash: True  # Flash attention for LLM
+brics_gids_enable: True
+entropy_gids_enable: True
+
+# Zero-shot evaluation mode
+# If True: Load checkpoint, skip training, evaluate directly (requires model_name_or_path)
+# If False: Normal training mode (load checkpoint, train, then evaluate)
+zero_shot: False
+

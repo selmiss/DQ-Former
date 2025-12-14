@@ -1,0 +1,42 @@
+# Model Configuration for Retrosynthesis Finetuning
+# These parameters define the model architecture
+
+# Pretrained checkpoint path (Stage 2 checkpoint for retrosynthesis training)
+model_name_or_path: checkpoints/edt_former_s2_large/final_model/model.safetensors # Automatically loads Stage 2 full model checkpoint
+
+# QFormer Configuration
+use_flash_attention: True
+use_dq_encoder: True
+num_query_tokens: 32
+embed_dim: 512
+cross_attention_freq: 1
+
+# Graph Encoder Configuration
+local_q_only: False
+
+# Blending Module Configuration
+enable_blending: True
+num_layers: 8
+num_heads: 8
+
+# LLM Configuration
+# NOTE: For edt_former, model_name_or_path is the FULL checkpoint (encoder+LLM), not the LLM backbone
+# llm_backbone specifies which base LLM to load before applying the checkpoint weights
+# If null, uses default: 'unsloth/Llama-3.1-8B-Instruct'
+llm_backbone: null  # Optional: override default LLM backbone (e.g., "unsloth/Llama-3.1-8B-Instruct")
+freeze_llm: False  # For retrosynthesis finetuning, we typically don't freeze LLM
+enable_lora_qformer: False
+
+# Training-specific model settings
+tune_gnn: False
+temperature: 0.1
+enable_flash: True  # Flash attention for LLM
+brics_gids_enable: True
+entropy_gids_enable: True
+
+# Zero-shot evaluation mode
+# If True: Load checkpoint, skip training, evaluate directly (requires model_name_or_path)
+# If False: Normal training mode (load checkpoint, train, then evaluate)
+zero_shot: False
+
+

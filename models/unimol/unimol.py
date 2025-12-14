@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from unicore import utils
-from unicore.models import BaseUnicoreModel
+from utils.unicore import BaseUnicoreModel
 from unicore.modules import init_bert_params
 from models.unimol.transformer_encoder_with_pair import TransformerEncoderWithPair
 
@@ -68,7 +68,9 @@ class SimpleUniMolModel(BaseUnicoreModel):
         src_edge_type,
     ):
         padding_mask = src_tokens.eq(self.padding_idx).bool()
+
         x = self.embed_tokens(src_tokens)
+        
 
         def get_dist_features(dist, et):
             n_node = dist.size(-1)

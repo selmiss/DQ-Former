@@ -1,10 +1,15 @@
 # Defined ignore files
+.cursor/
+slurm*
 envs/
+/scripts/data_analysis
+local.env.sh
 /pampa/
 init_env_mine.sh
 wandb/
 data/
 data
+checkpoints
 checkpoints/
 checkpoints_backup/
 __pycache__/
@@ -14,7 +19,9 @@ Uni-Core/
 results/
 repos/
 tmp/
+baselines
 baselines/
+hf_home
 lightning_logs/
 /lightning_logs/
 /srun/

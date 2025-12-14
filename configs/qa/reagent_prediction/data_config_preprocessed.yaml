@@ -1,0 +1,36 @@
+# Data Configuration for Reagent Prediction with Preprocessed Data
+# This configuration uses preprocessed datasets for faster training
+
+# Preprocessed dataset settings
+use_preprocessed: true
+
+# Path to preprocessed data
+# Can be:
+#   - Local directory: 'data/reagent_prediction/' (expects train.jsonl and test.jsonl)
+#   - HuggingFace Hub repo: 'username/reagent-prediction-preprocessed'
+preprocessed_data: data/mol_instructions_processed/reagent_prediction/
+
+# Task type: 'reaction' for molecule generation/reaction tasks
+task_type: reaction
+
+# Molecular representation type
+# Options: 'mol', 'SMILES', 'SMILES,mol', 'SELFIES', 'SELFIES,mol'
+# For reaction tasks: SELFIES in conversations + mol graph data
+mol_type: SELFIES,mol
+training_ratio: 0.25
+max_eval_samples: 250
+
+# HuggingFace datasets options (optional)
+use_streaming: false  # Set to true for very large datasets
+cache_dir: null       # Optional: specify custom cache directory
+
+# Evaluation settings
+# max_eval_samples: null  # Limit evaluation to N samples for faster training (null = use all)
+# random_seed: 42        # Random seed for sampling eval samples
+
+# Legacy fields (for fallback to original data loading if needed)
+root: data/moleculeqa/
+num_workers: 0
+batch_size: 4
+
+

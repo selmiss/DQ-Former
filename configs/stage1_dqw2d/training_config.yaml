@@ -1,0 +1,52 @@
+# Training Configuration for Stage 1 (HuggingFace TrainingArguments compatible)
+
+# Experiment naming
+run_name: edt_former_s1_large
+
+# Training hyperparameters
+num_train_epochs: 15
+learning_rate: 1.0e-4
+weight_decay: 0.05
+warmup_steps: 100
+lr_scheduler_type: "cosine"  # Must be quoted string
+
+# Batch size and accumulation
+per_device_train_batch_size: 48
+per_device_eval_batch_size: 48
+gradient_accumulation_steps: 1
+
+# Precision
+bf16: True
+fp16: False
+
+# Checkpointing and evaluation
+save_strategy: "epoch"
+save_steps: 3  # save every N epochs when save_strategy=epoch
+save_total_limit: null
+eval_strategy: "epoch"  # Must be quoted string: "no", "steps", or "epoch"
+eval_steps: 1  # evaluate every N epochs when eval_strategy=epoch
+load_best_model_at_end: False
+
+# Logging
+logging_steps: 100
+report_to:
+  - wandb
+
+# DataLoader settings
+dataloader_num_workers: 8
+dataloader_persistent_workers: True
+dataloader_pin_memory: True
+dataloader_drop_last: True
+dataloader_prefetch_factor: 2
+remove_unused_columns: False
+
+# Distributed training
+ddp_find_unused_parameters: False
+
+# Reproducibility
+seed: 0
+data_seed: 0
+
+# Note: deepspeed config path is set automatically by the training script
+# based on deepspeed_stage value (2 or 3) in the script itself
+

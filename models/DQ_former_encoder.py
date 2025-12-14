@@ -13,9 +13,10 @@ from torch.cuda.amp import autocast as autocast
 from torch.nn import functional as F
 
 from transformers import BertTokenizer, Blip2QFormerConfig, Blip2QFormerModel
+
 from huggingface_hub import hf_hub_download
 
-from unicore.data import Dictionary
+from utils.unicore import Dictionary
 
 from models.unimol.unimol import SimpleUniMolModel
 from models.moleculestm.moleculestm import MoleculeSTM
@@ -43,6 +44,8 @@ class DQMolLLaMAEncoder(nn.Module):
         enable_blending=False,
         brics_gids_enable=False,
         entropy_gids_enable=False,
+        global_q_budget=None,
+        local_q_budget=None,
     ):
         super().__init__()
         self.num_query_tokens = qformer_config.num_query_tokens
@@ -52,6 +55,14 @@ class DQMolLLaMAEncoder(nn.Module):
         self.local_q_only = graph_encoder_config.local_q_only
         self.brics_gids_enable = brics_gids_enable
         self.entropy_gids_enable = entropy_gids_enable
+        self.use_dq_encoder = qformer_config.use_dq_encoder
+
+        self.global_q_budget = global_q_budget
+        self.local_q_budget = local_q_budget
+        print("Activated global and local q budget==================================================")
+        print(f"global_q_budget: {self.global_q_budget}, local_q_budget: {self.local_q_budget}")
+        print("==================================================")
+
         print(f"local_q_only: {self.local_q_only}")
 
         # Initialize graph encoders
@@ -83,7 +94,10 @@ class DQMolLLaMAEncoder(nn.Module):
         self.Qformer, self.query_tokens, self.scibert_tokenizer = \
                     self.init_DQformer(qformer_config, hidden_size)
         
-        self.local_q_proj = nn.Linear(hidden_size, self.Qformer.config.hidden_size)
+        if self.use_dq_encoder:
+            self.local_q_proj = nn.Linear(hidden_size, self.Qformer.config.hidden_size)
+        else:
+            self.local_q_proj = None
         self.register_buffer("static_q_mask", torch.ones(1, qformer_config.num_query_tokens, dtype=torch.bool))
 
         # Initialize Projectors, Not be used for stage2 training
@@ -134,9 +148,7 @@ class DQMolLLaMAEncoder(nn.Module):
         )
         ckpt = torch.load(unimol_ckpt_path, map_location='cpu', weights_only=True)
 
-        # You may need to change some unicore code here.
         missing_keys, unexpected_keys = unimol_model.load_state_dict(ckpt['model'], strict=False, assign=True)
-        # Here, if you are using later transformers package, please change the original onicore function load_state_dict to load_state_dict(state_dict, strict, assign=True).
         
         ln_graph = nn.LayerNorm(unimol_model.num_features)
         
@@ -183,6 +195,8 @@ class DQMolLLaMAEncoder(nn.Module):
         # )
 
         Qformer.resize_token_embeddings(len(tokenizer))
+
+        # Optionally wrap Q-Former with PEFT LoRA (use existing packages only)
 
         # ✅（2）扩展位置表 embedding（若预训练只有 512）
         old_embed = Qformer.bert.embeddings.position_embeddings
@@ -257,10 +271,11 @@ class DQMolLLaMAEncoder(nn.Module):
         else:
             return contextlib.nullcontext()
 
-    def compute_loss(self, graph_batch, text_batch, brics_gids, entropy_gids):
+    def compute_loss(self, graph_batch, text_batch):
         batch_size = text_batch.input_ids.shape[0]
-
-        batch_node, batch_mask, query_output = self.graph_forward(graph_batch, brics_gids=brics_gids, entropy_gids=entropy_gids)
+        
+        # graph_forward will extract brics_gids and entropy_gids from graph_batch
+        batch_node, batch_mask, query_output = self.graph_forward(graph_batch)
         
         graph_feats = self.graph_proj(query_output.last_hidden_state) # shape = [B, num_q, D]
         graph_feats = F.normalize(graph_feats, p=2, dim=-1)
@@ -398,7 +413,11 @@ class DQMolLLaMAEncoder(nn.Module):
         return padded, frag_mask, frag_ids_list
 
     
-    def graph_forward(self, graph_batch, brics_gids=None, entropy_gids=None):
+    def graph_forward(self, graph_batch):
+        # Extract brics_gids and entropy_gids from graph_batch
+        brics_gids = graph_batch.get('brics_gids', None)
+        entropy_gids = graph_batch.get('entropy_gids', None)
+        
         batch_nodes, batch_masks = {}, {}
         for encoder_type in self.encoder_types:
             batch_node, batch_mask = self.graph_encoder[encoder_type](**graph_batch[encoder_type])
@@ -415,7 +434,7 @@ class DQMolLLaMAEncoder(nn.Module):
         B, N, D = batch_node.shape                        # D == hidden_size
 
         # ------------------------------------------------------------
-        # TODO: Use BRICS-based molecular segmentation to pool sub-graphs into one embeddings, the output should be length of frags
+        # Use BRICS-based molecular segmentation to pool sub-graphs into one embeddings
         if self.brics_gids_enable and brics_gids is None:
             raise ValueError("brics_gids is required when brics_gids_enable is True, but got None")
         if self.entropy_gids_enable and entropy_gids is None:
@@ -433,23 +452,45 @@ class DQMolLLaMAEncoder(nn.Module):
 
         # ---------- (A) 构造动态 Local-Q ----------
         # 将每个样本的节点嵌入投射为 Local-Q，长度 = 节点数
-        local_q = self.local_q_proj(pooled_frags)           # [B, N, D]
-        local_q_mask = frag_mask                         # [B, N]  True=keep / 1
+        if self.use_dq_encoder:
+            local_q = self.local_q_proj(pooled_frags)           # [B, N, D]
+            local_q_mask = frag_mask                         # [B, N]  True=keep / 1
+            
+            # Apply local_q_budget if set and smaller than current number of local Q tokens
+            if self.local_q_budget is not None:
+                num_local_q = local_q_mask.shape[1]
+                if self.local_q_budget < num_local_q:
+                    # Mask tokens from right to left, keeping leftmost tokens active
+                    local_q_mask[:, self.local_q_budget:] = False
+        else:
+            local_q = None
+            local_q_mask = None
 
         # ---------- (B) 取静态 Global-Q ----------
         static_q = self.query_tokens.expand(B, -1, -1)    # [B, Q_fixed, D]
         static_q_mask = self.static_q_mask.expand(B, -1)  # [B, Q_fixed]
+        
+        # Apply global_q_budget if set and smaller than current number of global Q tokens
+        if self.global_q_budget is not None:
+            num_global_q = static_q_mask.shape[1]
+            if self.global_q_budget < num_global_q:
+                # Mask tokens from right to left, keeping leftmost tokens active
+                static_q_mask[:, self.global_q_budget:] = False
 
         # ---------- (C) 合并两类 Query ----------
         if self.local_q_only:
             query_embeds = local_q
             query_mask = local_q_mask
             target_len = self.max_local_q
-        else:
+        elif self.use_dq_encoder:
             query_embeds = torch.cat([static_q, local_q], dim=1)          # [B, Q_fixed+N, D]
             query_mask   = torch.cat([static_q_mask, local_q_mask], dim=1)  # [B, Q_fixed+N]
             target_len = self.query_tokens.shape[1] + self.max_local_q
-
+        else:
+            query_embeds = static_q
+            query_mask = static_q_mask
+            target_len = self.query_tokens.shape[1]
+        
         # Ensure fixed query length across ranks for DDP all_gather
         cur_len = query_embeds.shape[1]
         if cur_len > target_len:
@@ -474,34 +515,23 @@ class DQMolLLaMAEncoder(nn.Module):
         query_output.query_mask = query_mask
         return batch_node, batch_mask, query_output
 
-    def graph_forward_backup(self, graph_batch):
-        batch_nodes, batch_masks = {}, {}
-        for encoder_type in self.encoder_types:
-            # if encoder_type == 'unimol':
-            #     continue
-            batch_node, batch_mask = self.graph_encoder[encoder_type](**graph_batch[encoder_type])
-            batch_node = self.ln_graph[encoder_type](batch_node)
+    def forward(self, graph_batch):
+        """
+        Forward pass that wraps graph_forward.
+        This allows the model to be called directly: model(graph_batch)
+        
+        Args:
+            graph_batch: Graph data batch dictionary containing encoder data, 
+                        brics_gids, and entropy_gids
+            
+        Returns:
+            batch_node: Node embeddings [B, N, D]
+            batch_mask: Node attention mask [B, N]
+            query_output: Q-Former output with query embeddings
+        """
+        return self.graph_forward(graph_batch)
 
-            batch_nodes[encoder_type] = batch_node
-            batch_masks[encoder_type] = batch_mask
 
-        if self.enable_blending:
-            batch_node, batch_mask, _ = self.blending_module(batch_nodes, batch_masks)
-        else:
-            # When blending is disabled, use MoleculeSTM (since that's what we want)
-            batch_node = batch_nodes['unimol']
-            batch_mask = batch_masks['unimol']
-
-        query_tokens = self.query_tokens.expand(batch_node.shape[0], -1, -1)
-        query_output = self.Qformer.bert(
-            query_embeds=query_tokens,
-            encoder_hidden_states=batch_node,
-            encoder_attention_mask=batch_mask,
-            use_cache=True,
-            return_dict=True,
-        )
-
-        return batch_node, batch_mask, query_output
 
     def text_forward(self, input_ids, mask):
         text_output = self.Qformer.bert(input_ids, attention_mask=mask, return_dict=True)

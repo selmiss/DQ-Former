@@ -15,7 +15,7 @@ from torch.nn import functional as F
 from transformers import BertTokenizer, Blip2QFormerConfig, Blip2QFormerModel
 from huggingface_hub import hf_hub_download
 
-from unicore.data import Dictionary
+from utils.unicore import Dictionary
 
 from models.unimol.unimol import SimpleUniMolModel
 from models.moleculestm.moleculestm import MoleculeSTM

@@ -1,0 +1,34 @@
+# Data configuration for Stage 1 pretraining with PREPROCESSED datasets
+# This config uses the new preprocessed dataset loading system for faster training
+
+num_workers: 8
+batch_size: 48
+text_max_len: 512
+
+# Original data root (still needed as fallback)
+root: data/Mol-LLaMA-Instruct/
+
+# NEW: Use preprocessed datasets
+use_preprocessed: true
+
+# NEW: Path to preprocessed data directory (with train.jsonl/val.jsonl/test.jsonl) or HuggingFace Hub repo
+# HuggingFace automatically detects whether it's local or Hub!
+preprocessed_data: data/pretrain
+
+# Examples:
+# Local directory:  preprocessed_data: data/pretrain/preprocessed  (contains train.jsonl, val.jsonl, test.jsonl)
+# HF Hub:          preprocessed_data: username/pubchem-molecules-preprocessed
+
+# NEW: Validation set ratio if only single 'train' split exists (default: 0.01)
+# The loader will automatically do fast random split if no validation split found
+val_ratio: 0.01
+
+# NEW: Random seed for data splitting (default: 42)
+random_seed: 42
+
+# NEW: Enable streaming mode for very large datasets (optional)
+# use_streaming: false
+
+# NEW: Cache directory for HuggingFace datasets (optional)
+# cache_dir: /path/to/cache
+

@@ -1,0 +1,43 @@
+# Model Configuration for Description-Guided Molecule Design Finetuning
+# These parameters define the model architecture
+# NOTE: This task uses TEXT input (no graph encoder needed)
+
+# Pretrained checkpoint path (Stage 2 checkpoint for molecule design training)
+model_name_or_path: checkpoints/mol_forward_mollama/final_model # Base LLM for mol-llama baseline
+
+
+# QFormer Configuration
+use_flash_attention: True
+use_dq_encoder: True  # No graph encoder for text-to-molecule task
+num_query_tokens: 8
+embed_dim: 256
+cross_attention_freq: 2
+
+# Graph Encoder Configuration
+local_q_only: False
+
+# Blending Module Configuration
+
+enable_blending: True  # No blending needed for text-only input
+num_layers: 4
+num_heads: 8
+max_local_query: 0
+
+# LLM Configuration
+llm_backbone: null # Optional: override default LLM model (e.g., "meta-llama/Meta-Llama-3-8B")
+freeze_llm: False  # For molecule design finetuning, we typically don't freeze LLM
+enable_lora_qformer: False
+llm_only: True  # TEXT-ONLY MODE: Skip encoder entirely (saves ~20-25 GB GPU memory for text-to-molecule tasks)
+
+# Training-specific model settings
+tune_gnn: False
+temperature: 0.1
+enable_flash: True  # Flash attention for LLM
+brics_gids_enable: True  # No BRICS for text input
+entropy_gids_enable: True  # No entropy for text input
+
+# Zero-shot evaluation mode
+# If True: Load checkpoint, skip training, evaluate directly (requires model_name_or_path)
+# If False: Normal training mode (load checkpoint, train, then evaluate)
+zero_shot: True
+

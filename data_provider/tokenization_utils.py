@@ -1,5 +1,8 @@
+import logging
 import torch
 from transformers import BatchEncoding
+
+logger = logging.getLogger(__name__)
 
 def tokenize_messages_llama2(messages, tokenizer):
     tokenized = {
@@ -193,11 +196,36 @@ def tokenized_messages(messages, tokenizer, llm_type):
     else:
         raise ValueError("Unsupported model type. Choose 'llama2', 'llama3', 'qwen3', 'mistral', 'mistral8b', or 'gemma'.")
 
-def batch_tokenize_messages_list(messages_list, tokenizer, llm_type, padding_side='left'):
+def batch_tokenize_messages_list(messages_list, tokenizer, llm_type, padding_side='left', max_input_length=None):
     tokenized_list = []
     for messages in messages_list:
         tokenized = tokenized_messages(messages, tokenizer, llm_type)
         tokenized_list.append(tokenized)
+
+    # Truncate sequences that exceed max_input_length (if specified)
+    if max_input_length is not None:
+        truncated_count = 0
+        max_original_length = 0
+        for t in tokenized_list:
+            original_length = len(t['input_ids'])
+            max_original_length = max(max_original_length, original_length)
+            if original_length > max_input_length:
+                truncated_count += 1
+                if padding_side == 'left':
+                    # Keep the most recent tokens (end of sequence)
+                    t['input_ids'] = t['input_ids'][-max_input_length:]
+                    t['attention_mask'] = t['attention_mask'][-max_input_length:]
+                    t['labels'] = t['labels'][-max_input_length:]
+                    t['mol_token_flag'] = t['mol_token_flag'][-max_input_length:]
+                else:
+                    # Keep the beginning tokens
+                    t['input_ids'] = t['input_ids'][:max_input_length]
+                    t['attention_mask'] = t['attention_mask'][:max_input_length]
+                    t['labels'] = t['labels'][:max_input_length]
+                    t['mol_token_flag'] = t['mol_token_flag'][:max_input_length]
+        
+        if truncated_count > 0:
+            logger.debug(f"Truncated {truncated_count}/{len(tokenized_list)} sequences (max original length: {max_original_length}, limit: {max_input_length})")
 
     # Pad the tokenized messages
     max_length = max(len(t['input_ids']) for t in tokenized_list)
