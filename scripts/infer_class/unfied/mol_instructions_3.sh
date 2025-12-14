@@ -26,7 +26,7 @@ for task_name in ${TASKS}; do
             --task_name ${task_name} \
             --lora_path zjunlp/llama3-instruct-molinst-molecule-8b \
             --prompt_type ${prompt_type} \
-            --output_name molinstructions_3.1 \
+            --output_name molinstructions_3.1_test \
             --baseline_type llm_lora \
             --only_llm
     done

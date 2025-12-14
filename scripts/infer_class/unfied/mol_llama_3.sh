@@ -27,7 +27,7 @@ for task_name in ${TASKS}; do
             --task_name ${task_name} \
             --qformer_path ${HF_HOME}/hub/models--DongkiKim--Mol-Llama-3.1-8B-Instruct/snapshots/dd99e6ea328e01d713ac31aaad017074a6126483/model.safetensors \
             --prompt_type ${prompt_type} \
-            --output_name molllama \
+            --output_name molllama_test \
             --baseline_type mollama \
             --freeze_llm \
             --enable_blending

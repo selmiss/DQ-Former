@@ -11,44 +11,44 @@ export OMP_NUM_THREADS=${OMP_NUM_THREADS:-16}
 export MKL_NUM_THREADS=${MKL_NUM_THREADS:-16}
 export OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-16}
 
-# Generic preprocessing script for binary classification datasets
-# Supports both standard directory structure with train.csv, valid.csv, test.csv
-# AND molnet structure with raw/train_*.csv, raw/valid_*.csv, raw/test_*.csv
+# CLINTOX (Clinical Toxicity) preprocessing script
+# CLINTOX has two targets: FDA_APPROVED and CT_TOX (Clinical Trial Toxicity)
+# By default uses CT_TOX for toxicity prediction
+# Supports molnet structure with raw/train_*.csv, raw/valid_*.csv, raw/test_*.csv
 #
 # Thread Limits:
 #   By default, uses 16 CPU threads to avoid overwhelming shared servers.
 #   To customize, set environment variables before running:
-#     RDKIT_NUM_THREADS=8 OMP_NUM_THREADS=8 bash binary-mac.sh
+#     RDKIT_NUM_THREADS=8 OMP_NUM_THREADS=8 bash binary-clintox.sh
 #
 # Usage examples:
-#   # CLINTOX (default)
-#   DATASET_VARIANT=clintox_1 DATASET_NAME=clintox bash binary.sh
+#   # Default CLINTOX_1 with CT_TOX (toxicity)
+#   bash binary-clintox.sh
 #
-#   # BACE
-#   DATASET_VARIANT=bace_1 DATASET_NAME=bace SMILES_COL=mol TARGET_COL=Class bash binary.sh
+#   # Use FDA_APPROVED instead
+#   TARGET_COL=FDA_APPROVED ANSWER_MAP='{"1":"Approved","0":"Not approved"}' bash binary-clintox.sh
 #
-#   # SIDER
-#   DATASET_VARIANT=sider_1 DATASET_NAME=sider SMILES_COL=mol TARGET_COL=Class bash binary.sh
+#   # Custom variant
+#   DATASET_VARIANT=clintox_2 bash binary-clintox.sh
 #
-#   # HIV
-#   DATASET_VARIANT=hiv DATASET_NAME=hiv SMILES_COL=smiles TARGET_COL=label bash binary.sh
-#
-#   # Custom dataset with different columns
-#   DATASET_VARIANT=custom_1 DATASET_NAME=custom SMILES_COL=smiles \
-#   TARGET_COL=label ANSWER_MAP='{"1":"Positive","0":"Negative"}' bash binary.sh
+#   # Custom thread limits (if system is heavily loaded)
+#   RDKIT_NUM_THREADS=4 bash binary-clintox.sh
 
 # Configuration - set these variables before running
-DATASET_VARIANT=${DATASET_VARIANT:-macrocycle}
-DATASET_NAME=${DATASET_NAME:-mac}
+DATASET_VARIANT=${DATASET_VARIANT:-clintox_1}
+DATASET_NAME=${DATASET_NAME:-clintox}
 SMILES_COL=${SMILES_COL:-smiles}
-TARGET_COL=${TARGET_COL:-target}
-ANSWER_MAP=${ANSWER_MAP:-'{"1":"Active","0":"Inactive"}'}
+# Default to CT_TOX (Clinical Trial Toxicity), can override to use FDA_APPROVED
+TARGET_COL=${TARGET_COL:-CT_TOX}
+ANSWER_MAP=${ANSWER_MAP:-'{"1":"Toxic","0":"Non-toxic"}'}
 
-INPUT_DIR=${BASE_DIR}/data/raw_sets/${DATASET_VARIANT}
+# CLINTOX is in data/molnet/ not data/raw_sets/
+INPUT_DIR=${BASE_DIR}/data/molnet/${DATASET_VARIANT}
 OUT_DIR=${DATA_DIR}/zeroshot/${DATASET_NAME}
 mkdir -p "${OUT_DIR}"
 
 echo "Processing ${DATASET_NAME^^} dataset..."
+echo "Target column: ${TARGET_COL}"
 echo "Thread limits: RDKIT=${RDKIT_NUM_THREADS}, OMP=${OMP_NUM_THREADS}, MKL=${MKL_NUM_THREADS}"
 
 python ${BASE_DIR}/data_provider/generate_from_csv.py \
@@ -96,3 +96,4 @@ else:
 "
 
 echo "${DATASET_NAME^^} processing complete. Output in ${OUT_DIR}"
+

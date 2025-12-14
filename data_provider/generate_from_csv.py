@@ -1,7 +1,8 @@
 """
 CSV to JSONL Data Generator for Molecular Property Prediction
 
-This module converts molecular datasets from CSV format to JSONL format with 3D conformers.
+This module converts molecular datasets from CSV format to JSONL format with 3D conformers
+and optional graph features, BRICS fragment IDs, and entropy fragment IDs.
 
 INPUT DATA FORMAT:
 ==================
@@ -30,7 +31,7 @@ Required:
                 Example: '{"1":"High permeability","0":"Low permeability"}'
   --output_dir: Directory for output files
 
-Optional:
+Optional (Basic):
   --dataset_name: Name prefix for output files (default: "dataset")
   --prompts_json: Path to custom prompts JSON file
   --split_col: Column name for train/val/test split tags
@@ -39,6 +40,14 @@ Optional:
   --test_ratio: Test split ratio (default: 0.1)
   --seed: Random seed for splitting (default: 42)
   --max_rows: Maximum rows to process (for testing)
+
+Optional (Advanced Features):
+  --enable_graph_features: Generate graph features (node_feat, edge_index, edge_feat)
+                          for MoleculeSTM and UniMol encoders
+  --enable_brics_gids: Generate BRICS fragment IDs for molecule fragmentation
+  --enable_entropy_gids: Generate entropy-based fragment IDs
+  --entropy_ckpt_dir: Path to entropy model checkpoint (default: checkpoints/entropy_model)
+  --entropy_vocab_path: Path to entropy vocab file (default: runner/entropy_model/vocab.txt)
 
 OUTPUT FORMAT:
 ==============
@@ -51,6 +60,9 @@ OUTPUT FORMAT:
      * answer: Mapped target value
      * atoms: List of atom symbols
      * coordinates: List of 3D coordinates (Nx3 array)
+     * graph_data: (optional) Dict with 'moleculestm' and 'unimol' graph features
+     * brics_gids: (optional) List of BRICS fragment IDs per atom
+     * entropy_gids: (optional) List of entropy fragment IDs per atom
 """
 
 import argparse
@@ -78,6 +90,22 @@ try:
 except Exception:
     pybel = None  # type: ignore
 
+# Optional imports for additional features (graph data, BRICS, entropy)
+try:
+    from data_provider.mol_dataset import smiles2graph
+except Exception:
+    smiles2graph = None  # type: ignore
+
+try:
+    from utils.patching_preprocess import brics_ids_from_smiles
+except Exception:
+    brics_ids_from_smiles = None  # type: ignore
+
+try:
+    from runner.entropy_model.entropy_process import group_ids_by_entropy
+except Exception:
+    group_ids_by_entropy = None  # type: ignore
+
 
 @dataclass
 class GenerationConfig:
@@ -100,6 +128,11 @@ class GenerationConfig:
                 Format: {"default": {"system": "...", "user": "..."},
                         "rationale": {"system": "...", "user": "..."},
                         "task_info": {"system": "...", "user": "..."}}
+        enable_graph_features: Whether to generate graph features (edges, node features)
+        enable_brics_gids: Whether to generate BRICS fragment IDs
+        enable_entropy_gids: Whether to generate entropy-based fragment IDs
+        entropy_ckpt_dir: Path to entropy model checkpoint directory
+        entropy_vocab_path: Path to entropy model vocabulary file
     """
     smiles_column_name: str
     target_column_name: str
@@ -112,6 +145,11 @@ class GenerationConfig:
     random_seed: int
     max_rows: Optional[int]
     prompts: Dict[str, Dict[str, str]]
+    enable_graph_features: bool = False
+    enable_brics_gids: bool = False
+    enable_entropy_gids: bool = False
+    entropy_ckpt_dir: str = "checkpoints/entropy_model"
+    entropy_vocab_path: str = "runner/entropy_model/vocab.txt"
 
 
 def read_csv_rows(
@@ -370,6 +408,154 @@ def parse_answer_map(mapping: str) -> Dict[str, str]:
         raise ValueError(
             "--answer_map must be a JSON object string, e.g. '{""1"":""Positive"",""0"":""Negative""}'"
         ) from exc
+
+
+def get_unimol_dictionary():
+    """
+    Load and cache the UniMol dictionary from HuggingFace.
+    
+    Returns:
+        UniMol Dictionary object for tokenizing atoms
+        
+    Note:
+        Dictionary is cached globally to avoid reloading.
+        Requires huggingface_hub and utils.unicore modules.
+    """
+    try:
+        from huggingface_hub import hf_hub_download
+        from utils.unicore import Dictionary
+        
+        print("Loading UniMol dictionary from HuggingFace...")
+        unimol_dictionary_path = hf_hub_download(
+            repo_id='dptech/Uni-Mol-Models',
+            filename='mol.dict.txt',
+        )
+        dictionary = Dictionary.load(unimol_dictionary_path)
+        dictionary.add_symbol("[MASK]", is_special=True)
+        print(f"✓ Loaded UniMol dictionary with {len(dictionary)} symbols")
+        return dictionary
+    except Exception as e:
+        print(f"Warning: Failed to load UniMol dictionary: {e}")
+        return None
+
+
+def generate_graph_features(smiles: str) -> Optional[Dict]:
+    """
+    Generate 2D graph features (node features, edges, edge features) from SMILES.
+    
+    Args:
+        smiles: SMILES string representing the molecule
+        
+    Returns:
+        Dictionary with keys:
+            - node_feat: List of node feature vectors
+            - edge_index: List of edge indices [2, num_edges]
+            - edge_feat: List of edge feature vectors
+        Returns None if generation fails
+        
+    Note:
+        Uses MoleculeSTM-style graph representation via smiles2graph function.
+    """
+    if smiles2graph is None:
+        return None
+    try:
+        graph_data = smiles2graph(smiles)
+        # Convert tensors to lists for JSON serialization
+        return {
+            'node_feat': graph_data['node_feat'].tolist() if hasattr(graph_data['node_feat'], 'tolist') else graph_data['node_feat'],
+            'edge_index': graph_data['edge_index'].tolist() if hasattr(graph_data['edge_index'], 'tolist') else graph_data['edge_index'],
+            'edge_feat': graph_data['edge_feat'].tolist() if hasattr(graph_data['edge_feat'], 'tolist') else graph_data['edge_feat'],
+        }
+    except Exception as e:
+        print(f"Warning: Failed to generate graph features for {smiles}: {e}")
+        return None
+
+
+def generate_unimol_data(atoms: List[str], coordinates: np.ndarray, unimol_dictionary) -> Optional[Dict]:
+    """
+    Generate UniMol encoder data from atoms and 3D coordinates.
+    
+    Args:
+        atoms: List of atomic symbols
+        coordinates: NumPy array of 3D coordinates (N, 3)
+        unimol_dictionary: Pre-loaded UniMol dictionary
+        
+    Returns:
+        Dictionary with UniMol-specific data fields, or None if generation fails
+        
+    Note:
+        Requires data_provider.preprocess.preprocess_moleculeqa_data module.
+    """
+    if unimol_dictionary is None:
+        return None
+    try:
+        from data_provider.preprocess.preprocess_moleculeqa_data import get_unimol_data
+        unimol_data = get_unimol_data(atoms, coordinates, unimol_dictionary)
+        
+        # Convert to serializable format
+        serializable = {}
+        for key, value in unimol_data.items():
+            if hasattr(value, 'tolist'):
+                serializable[key] = value.tolist()
+            else:
+                serializable[key] = value
+        return serializable
+    except Exception as e:
+        print(f"Warning: Failed to generate UniMol data: {e}")
+        return None
+
+
+def generate_brics_gids(smiles: str) -> Optional[List[int]]:
+    """
+    Generate BRICS fragment IDs for a molecule.
+    
+    Args:
+        smiles: SMILES string representing the molecule
+        
+    Returns:
+        List of fragment IDs (one per heavy atom), or None if generation fails
+        
+    Note:
+        Uses RDKit BRICS fragmentation algorithm.
+    """
+    if brics_ids_from_smiles is None:
+        return None
+    try:
+        return brics_ids_from_smiles(smiles)
+    except Exception as e:
+        print(f"Warning: Failed to generate BRICS IDs for {smiles}: {e}")
+        return None
+
+
+def generate_entropy_gids(smiles: str, ckpt_dir: str, vocab_path: str) -> Optional[List[int]]:
+    """
+    Generate entropy-based fragment IDs for a molecule.
+    
+    Args:
+        smiles: SMILES string representing the molecule
+        ckpt_dir: Path to entropy model checkpoint directory
+        vocab_path: Path to entropy model vocabulary file
+        
+    Returns:
+        List of fragment IDs (one per heavy atom), or None if generation fails
+        
+    Note:
+        Uses trained entropy model to identify high-uncertainty regions.
+    """
+    if group_ids_by_entropy is None:
+        return None
+    try:
+        entropy_result, _ = group_ids_by_entropy(
+            [smiles],
+            ckpt_dir=ckpt_dir,
+            vocab_path=vocab_path
+        )
+        if entropy_result is None or len(entropy_result) == 0:
+            return None
+        return entropy_result[0]
+    except Exception as e:
+        print(f"Warning: Failed to generate entropy IDs for {smiles}: {e}")
+        return None
 
 
 def generate_conformer_with_rdkit(smiles: str) -> Tuple[Optional[List[str]], Optional[np.ndarray]]:
@@ -688,6 +874,14 @@ def generate(
 
     data_records: List[Dict] = []
     split: Dict[str, List[int]] = {"train": [], "val": [], "test": []}
+    
+    # Load UniMol dictionary if graph features are enabled
+    unimol_dict = None
+    if config.enable_graph_features:
+        unimol_dict = get_unimol_dictionary()
+        if unimol_dict is None:
+            print("Warning: Could not load UniMol dictionary, graph features will be disabled")
+            config.enable_graph_features = False
 
     if csv_dir is not None:
         rows_with_split = read_csv_dir(
@@ -705,12 +899,48 @@ def generate(
             atoms, coordinates = generate_conformer(smiles)
             if atoms is None or coordinates is None:
                 continue
+            
+            # Build base record
             record = {
                 "smiles": smiles,
                 "answer": answer,
                 "atoms": atoms,
                 "coordinates": [coordinates.tolist()],
             }
+            
+            # Add optional graph features
+            if config.enable_graph_features:
+                graph_data = {}
+                
+                # Generate 2D graph features (MoleculeSTM)
+                graph_2d = generate_graph_features(smiles)
+                if graph_2d is not None:
+                    graph_data['moleculestm'] = graph_2d
+                
+                # Generate UniMol data
+                unimol_data = generate_unimol_data(atoms, coordinates, unimol_dict)
+                if unimol_data is not None:
+                    graph_data['unimol'] = unimol_data
+                
+                if graph_data:
+                    record['graph_data'] = graph_data
+            
+            # Add optional BRICS fragment IDs
+            if config.enable_brics_gids:
+                brics_gids = generate_brics_gids(smiles)
+                if brics_gids is not None:
+                    record['brics_gids'] = brics_gids
+            
+            # Add optional entropy fragment IDs
+            if config.enable_entropy_gids:
+                entropy_gids = generate_entropy_gids(
+                    smiles,
+                    config.entropy_ckpt_dir,
+                    config.entropy_vocab_path
+                )
+                if entropy_gids is not None:
+                    record['entropy_gids'] = entropy_gids
+            
             data_records.append(record)
             split_key = declared_split if declared_split in split else "train"
             split[split_key].append(len(data_records) - 1)
@@ -739,12 +969,48 @@ def generate(
             atoms, coordinates = generate_conformer(smiles)
             if atoms is None or coordinates is None:
                 continue
+            
+            # Build base record
             record = {
                 "smiles": smiles,
                 "answer": answer,
                 "atoms": atoms,
                 "coordinates": [coordinates.tolist()],
             }
+            
+            # Add optional graph features
+            if config.enable_graph_features:
+                graph_data = {}
+                
+                # Generate 2D graph features (MoleculeSTM)
+                graph_2d = generate_graph_features(smiles)
+                if graph_2d is not None:
+                    graph_data['moleculestm'] = graph_2d
+                
+                # Generate UniMol data
+                unimol_data = generate_unimol_data(atoms, coordinates, unimol_dict)
+                if unimol_data is not None:
+                    graph_data['unimol'] = unimol_data
+                
+                if graph_data:
+                    record['graph_data'] = graph_data
+            
+            # Add optional BRICS fragment IDs
+            if config.enable_brics_gids:
+                brics_gids = generate_brics_gids(smiles)
+                if brics_gids is not None:
+                    record['brics_gids'] = brics_gids
+            
+            # Add optional entropy fragment IDs
+            if config.enable_entropy_gids:
+                entropy_gids = generate_entropy_gids(
+                    smiles,
+                    config.entropy_ckpt_dir,
+                    config.entropy_vocab_path
+                )
+                if entropy_gids is not None:
+                    record['entropy_gids'] = entropy_gids
+            
             data_records.append(record)
 
         split = build_splits(
@@ -788,8 +1054,35 @@ def main() -> None:
     parser.add_argument("--test_ratio", type=float, default=0.1, help="Test ratio if auto-splitting")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for auto-splitting")
     parser.add_argument("--max_rows", type=int, default=None, help="Optionally limit rows for quick tests")
+    
+    # Optional feature generation flags
+    parser.add_argument("--enable_graph_features", action="store_true", help="Generate graph features (node_feat, edge_index, edge_feat) for MoleculeSTM and UniMol")
+    parser.add_argument("--enable_brics_gids", action="store_true", help="Generate BRICS fragment IDs")
+    parser.add_argument("--enable_entropy_gids", action="store_true", help="Generate entropy-based fragment IDs")
+    parser.add_argument("--entropy_ckpt_dir", default="checkpoints/entropy_model", help="Path to entropy model checkpoint directory")
+    parser.add_argument("--entropy_vocab_path", default="runner/entropy_model/vocab.txt", help="Path to entropy model vocabulary file")
+    
+    # Performance tuning
+    parser.add_argument("--num_threads", type=int, default=16, help="Number of CPU threads to use for RDKit, OMP, MKL, and OpenBLAS (default: 16)")
 
     args = parser.parse_args()
+    
+    # Set thread limits to avoid overwhelming shared servers
+    # Can be overridden by environment variables set before running this script
+    num_threads_str = str(args.num_threads)
+    if 'RDKIT_NUM_THREADS' not in os.environ:
+        os.environ['RDKIT_NUM_THREADS'] = num_threads_str
+    if 'OMP_NUM_THREADS' not in os.environ:
+        os.environ['OMP_NUM_THREADS'] = num_threads_str
+    if 'MKL_NUM_THREADS' not in os.environ:
+        os.environ['MKL_NUM_THREADS'] = num_threads_str
+    if 'OPENBLAS_NUM_THREADS' not in os.environ:
+        os.environ['OPENBLAS_NUM_THREADS'] = num_threads_str
+    
+    print(f"Thread limits - RDKIT: {os.environ.get('RDKIT_NUM_THREADS')}, "
+          f"OMP: {os.environ.get('OMP_NUM_THREADS')}, "
+          f"MKL: {os.environ.get('MKL_NUM_THREADS')}, "
+          f"OpenBLAS: {os.environ.get('OPENBLAS_NUM_THREADS')}")
 
     prompts = load_prompts_from_file(args.prompts_json, args.dataset_name)
     answer_map = parse_answer_map(args.answer_map)
@@ -806,6 +1099,11 @@ def main() -> None:
         random_seed=args.seed,
         max_rows=args.max_rows,
         prompts=prompts,
+        enable_graph_features=args.enable_graph_features,
+        enable_brics_gids=args.enable_brics_gids,
+        enable_entropy_gids=args.enable_entropy_gids,
+        entropy_ckpt_dir=args.entropy_ckpt_dir,
+        entropy_vocab_path=args.entropy_vocab_path,
     )
 
     meta_path, data_jsonl_path = generate(

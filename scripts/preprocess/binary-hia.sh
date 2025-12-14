@@ -4,9 +4,21 @@ set -euo pipefail
 : "${BASE_DIR:?Environment variable BASE_DIR not set}"
 : "${DATA_DIR:?Environment variable DATA_DIR not set}"
 
+# Set thread limits to avoid overwhelming shared servers
+# Adjust these values based on your system's resources
+export RDKIT_NUM_THREADS=${RDKIT_NUM_THREADS:-16}
+export OMP_NUM_THREADS=${OMP_NUM_THREADS:-16}
+export MKL_NUM_THREADS=${MKL_NUM_THREADS:-16}
+export OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-16}
+
 # Generic preprocessing script for binary classification datasets
 # Supports both standard directory structure with train.csv, valid.csv, test.csv
 # AND molnet structure with raw/train_*.csv, raw/valid_*.csv, raw/test_*.csv
+#
+# Thread Limits:
+#   By default, uses 16 CPU threads to avoid overwhelming shared servers.
+#   To customize, set environment variables before running:
+#     RDKIT_NUM_THREADS=8 OMP_NUM_THREADS=8 bash binary-hia.sh
 #
 # Usage examples:
 #   # CLINTOX (default)
@@ -36,13 +48,19 @@ INPUT_DIR=${BASE_DIR}/data/raw_sets/${DATASET_VARIANT}
 OUT_DIR=${DATA_DIR}/zeroshot/${DATASET_NAME}
 mkdir -p "${OUT_DIR}"
 
+echo "Processing ${DATASET_NAME^^} dataset..."
+echo "Thread limits: RDKIT=${RDKIT_NUM_THREADS}, OMP=${OMP_NUM_THREADS}, MKL=${MKL_NUM_THREADS}"
+
 python ${BASE_DIR}/data_provider/generate_from_csv.py \
   --csv_dir ${INPUT_DIR} \
   --smiles_col ${SMILES_COL} \
   --target_col ${TARGET_COL} \
   --answer_map "${ANSWER_MAP}" \
   --output_dir ${OUT_DIR} \
-  --dataset_name ${DATASET_NAME}
+  --dataset_name ${DATASET_NAME} \
+  --enable_graph_features \
+  --enable_brics_gids \
+  --enable_entropy_gids
 
 echo "${DATASET_NAME^^} data JSONL written to ${OUT_DIR}"
 echo "Now updating meta.json with custom prompts..."

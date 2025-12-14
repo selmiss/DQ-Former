@@ -12,7 +12,7 @@ for prompt_type in default rationale task_info; do
         --tokenizer_path DongkiKim/Mol-Llama-3.1-8B-Instruct \
         --data_dir ${DATA_DIR} \
         --task_name bbbp \
-        --qformer_path /home/UWO/zjing29/proj/DQ-Former/hf_home/hub/models--DongkiKim--Mol-Llama-3.1-8B-Instruct/snapshots/dd99e6ea328e01d713ac31aaad017074a6126483/model.safetensors \
+        --qformer_path ${BASE_DIR}/hf_home/hub/models--DongkiKim--Mol-Llama-3.1-8B-Instruct/snapshots/dd99e6ea328e01d713ac31aaad017074a6126483/model.safetensors \
         --prompt_type ${prompt_type} \
         --output_name molllama \
         --baseline_type mollama \

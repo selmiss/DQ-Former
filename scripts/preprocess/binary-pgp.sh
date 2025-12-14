@@ -18,7 +18,7 @@ export OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-16}
 # Thread Limits:
 #   By default, uses 16 CPU threads to avoid overwhelming shared servers.
 #   To customize, set environment variables before running:
-#     RDKIT_NUM_THREADS=8 OMP_NUM_THREADS=8 bash binary-mac.sh
+#     RDKIT_NUM_THREADS=8 OMP_NUM_THREADS=8 bash binary-hia.sh
 #
 # Usage examples:
 #   # CLINTOX (default)
@@ -38,10 +38,10 @@ export OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-16}
 #   TARGET_COL=label ANSWER_MAP='{"1":"Positive","0":"Negative"}' bash binary.sh
 
 # Configuration - set these variables before running
-DATASET_VARIANT=${DATASET_VARIANT:-macrocycle}
-DATASET_NAME=${DATASET_NAME:-mac}
+DATASET_VARIANT=${DATASET_VARIANT:-Pgp_Broccatelli}
+DATASET_NAME=${DATASET_NAME:-pgp}
 SMILES_COL=${SMILES_COL:-smiles}
-TARGET_COL=${TARGET_COL:-target}
+TARGET_COL=${TARGET_COL:-Y}
 ANSWER_MAP=${ANSWER_MAP:-'{"1":"Active","0":"Inactive"}'}
 
 INPUT_DIR=${BASE_DIR}/data/raw_sets/${DATASET_VARIANT}

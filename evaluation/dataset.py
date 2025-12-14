@@ -1,13 +1,16 @@
 import json
 import os
-from torch.utils.data import Dataset
-from data_provider.mol_dataset import smiles2graph, get_unimol_data
 from collections import defaultdict
-from torch_geometric.data import Data, Batch
-from data_provider.tokenization_utils import batch_tokenize_messages_list
-from data_provider.collaters import Mol3DCollater
+
 import numpy as np
+import torch
+from torch.utils.data import Dataset
+from torch_geometric.data import Data, Batch
 from tqdm import tqdm
+
+from data_provider.collaters import Mol3DCollater
+from data_provider.mol_dataset import smiles2graph, get_unimol_data
+from data_provider.tokenization_utils import batch_tokenize_messages_list
 import warnings
 
 class ZeroshotDataset(Dataset):
@@ -208,5 +211,115 @@ class ZeroshotCollater():
             text_batch = tokenized
 
         return graph_batch, text_batch, answers, smiles, brics_gids, entropy_gids
+
+
+class FunctionalGroupHallucinationDataset(Dataset):
+    """Dataset for functional-group hallucination evaluation using SMILES inputs."""
+
+    SYSTEM_PROMPT = (
+        "You are an expert computational chemist. Given a molecule encoded as a "
+        "SMILES string, identify every functional group it contains."
+    )
+    USER_PROMPT_TEMPLATE = (
+        "SMILES string:\n"
+        "{smiles}\n\n"
+        "List all functional groups that appear in this molecule, "
+        "and DO NOT hallucinate any functional groups that are not present in the molecule.\n"
+        "{mol_hint}"
+    )
+
+    def __init__(self, jsonl_path, unimol_dictionary, only_llm=False, sample_limit=None):
+        super().__init__()
+        if not os.path.isfile(jsonl_path):
+            raise FileNotFoundError(f"Functional-group JSONL not found: {jsonl_path}")
+
+        self.only_llm = only_llm
+        self.unimol_dictionary = unimol_dictionary
+        self.records = []
+        with open(jsonl_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                self.records.append(json.loads(line))
+                if sample_limit is not None and len(self.records) >= sample_limit:
+                    break
+
+        if not self.records:
+            raise ValueError(f"No valid records loaded from {jsonl_path}")
+
+        self.mol_prompt = "<mol>" * 8
+
+    def __len__(self):
+        return len(self.records)
+
+    def __getitem__(self, idx):
+        data = self.records[idx]
+        graph_data = defaultdict(list)
+        cached_graphs = data.get("graph_data", {})
+
+        unimol_graph = cached_graphs.get("unimol")
+        if unimol_graph is None:
+            raise ValueError("Missing UniMol graph data in hallucination dataset record.")
+        graph_data["unimol"].append(self._to_unimol_tensors(unimol_graph))
+
+        moleculestm_graph = cached_graphs.get("moleculestm")
+        if moleculestm_graph is None:
+            graphs = smiles2graph(data["smiles"])
+            graph_data["moleculestm"].append(
+                Data(
+                    x=graphs["node_feat"],
+                    edge_index=graphs["edge_index"],
+                    edge_attr=graphs["edge_feat"],
+                )
+            )
+        else:
+            graph_data["moleculestm"].append(self._to_moleculestm_data(moleculestm_graph))
+
+        messages = self._build_messages(data["smiles"])
+        answer = data.get("functional_groups", "")
+        brics_gids = data.get("brics_gids")
+        entropy_gids = data.get("entropy_gids")
+
+        return graph_data, messages, answer, data["smiles"], brics_gids, entropy_gids
+
+    def _build_messages(self, smiles: str):
+        mol_hint = ""
+        if not self.only_llm:
+            mol_hint = (
+                self.mol_prompt
+            )
+        user_prompt = self.USER_PROMPT_TEMPLATE.format(smiles=smiles, mol_hint=mol_hint)
+        return [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ]
+
+    @staticmethod
+    def _to_unimol_tensors(unimol_graph):
+        return {
+            "src_tokens": torch.tensor(unimol_graph["src_tokens"], dtype=torch.long),
+            "src_edge_type": torch.tensor(
+                unimol_graph["src_edge_type"], dtype=torch.long
+            ),
+            "src_distance": torch.tensor(
+                unimol_graph["src_distance"], dtype=torch.float32
+            ),
+        }
+
+    @staticmethod
+    def _to_moleculestm_data(moleculestm_graph):
+        data = Data(
+            x=torch.tensor(moleculestm_graph["node_feat"], dtype=torch.long),
+            edge_index=torch.tensor(
+                moleculestm_graph["edge_index"], dtype=torch.long
+            ),
+            edge_attr=torch.tensor(
+                moleculestm_graph["edge_attr"], dtype=torch.long
+            ),
+        )
+        if "num_nodes" in moleculestm_graph:
+            data.num_nodes = moleculestm_graph["num_nodes"]
+        return data
 
     

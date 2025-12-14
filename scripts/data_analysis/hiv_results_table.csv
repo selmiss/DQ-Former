@@ -1,8 +1,0 @@
-Model,default-0,default-1,default-2,default-3,rationale-0,rationale-1,rationale-2,task-info-0,task-info-1,task-info-2,binary,checklist,confidence
-EDT-Former,10.84,14.64,12.46,11.67,7.93,9.11,9.62,5.42,9.69,12.86,37.54,15.12,60.23
-Llama2,11.85,8.13,3.60,3.75,4.06,4.90,4.63,14.72,,,,,
-Llama3.1,11.88,,,,10.36,,,14.40,,,,,
-Mol-Instructions-Llama2,3.92,15.33,38.30,59.60,3.84,5.56,6.73,12.76,23.78,23.31,,,
-Mol-Instructions-Llama3.1,56.15,50.98,27.06,49.53,57.32,96.20,96.03,27.64,15.16,22.65,,,
-Mol-Llama2,,23.23,27.41,52.20,,4.33,4.45,,11.73,,,,
-Mol-Llama3.1,6.54,7.91,5.33,,5.40,,,14.83,,,,,

@@ -19,20 +19,20 @@ models = [
 
 # 每个模型的得分
 scores = np.array([
-    [82.31, 75.00, 74.55, 72.93, 50.71, 48.58, ],  # 模型1
-    [51.35, 62.20, 33.28, 33.49, 32.41, 26.26, ],  # 模型2
+    [82.34, 72.48, 74.55, 72.93, 50.71, 48.58, ],  # 模型1
+    [51.35, 62.17, 33.28, 33.49, 32.41, 26.26, ],  # 模型2
     [55.37, 59.31, 32.35, 41.92, 31.05, 28.21, ],  # 模型3
-    [53.29, 54.55, 72.79, 70.82, 43.08, 41.22, ],  # 模型4
-    [66.80, 58.06, 73.16, 70.22, 45.70, 46.18, ],  # 模型5
-    [53.93, 50.90, 73.17, 70.50, 44.79, 44.19, ],  # 模型6
+    [57.39, 53.29, 72.79, 70.82, 43.08, 41.22, ],  # 模型4
+    [67.15, 56.64, 73.16, 70.22, 45.70, 46.18, ],  # 模型5
+    [54.50, 51.20, 73.17, 70.50, 44.79, 44.19, ],  # 模型6
 ])
 
 # 柱状图参数
 bar_width = 0.13
 x = np.arange(len(tasks))
 colors = ["dodgerblue", "deepskyblue", "lightgrey", "tan", "khaki", "wheat"]
-prop = font_manager.FontProperties(fname="./results/Times New Roman.ttf", size=18)
-prop_bold = font_manager.FontProperties(fname="./results/Times New Roman - Bold.ttf")
+prop = font_manager.FontProperties(fname="./utils/figures/results/Times New Roman.ttf", size=18)
+prop_bold = font_manager.FontProperties(fname="./utils/figures/results/Times New Roman - Bold.ttf")
 print("Loaded font:", prop.get_name())
 rcParams["font.family"] = prop.get_name()
 
@@ -95,5 +95,5 @@ plt.tight_layout()
 
 # 保存图片
 os.makedirs("./utils/figures/results", exist_ok=True)
-plt.savefig("./utils/figures/results/coverpage_v3.pdf", dpi=600, bbox_inches="tight")  # 也可以保存为 PDF 矢量图
+plt.savefig("./utils/figures/results/coverpage_v4.pdf", dpi=600, bbox_inches="tight")  # 也可以保存为 PDF 矢量图
 plt.close()

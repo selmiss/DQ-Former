@@ -4,8 +4,16 @@ set -euo pipefail
 : "${BASE_DIR:?Environment variable BASE_DIR not set}"
 : "${DATA_DIR:?Environment variable DATA_DIR not set}"
 
+# Set thread limits to avoid overwhelming shared servers
+# Adjust these values based on your system's resources
+export RDKIT_NUM_THREADS=${RDKIT_NUM_THREADS:-16}
+export OMP_NUM_THREADS=${OMP_NUM_THREADS:-16}
+export MKL_NUM_THREADS=${MKL_NUM_THREADS:-16}
+export OPENBLAS_NUM_THREADS=${OPENBLAS_NUM_THREADS:-16}
+
 # Process only HIV test split
 echo "Processing HIV test split only..."
+echo "Thread limits: RDKIT=${RDKIT_NUM_THREADS}, OMP=${OMP_NUM_THREADS}, MKL=${MKL_NUM_THREADS}"
 
 export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
 
@@ -19,7 +27,10 @@ python ${BASE_DIR}/data_provider/generate_from_csv.py \
   --dataset_name hiv \
   --train_ratio 0.0 \
   --val_ratio 0.0 \
-  --test_ratio 1.0
+  --test_ratio 1.0 \
+  --enable_graph_features \
+  --enable_brics_gids \
+  --enable_entropy_gids
 
 echo "HIV test data JSONL written to ${DATA_DIR}/zeroshot/hiv"
 echo "Now updating meta.json with custom prompts..."

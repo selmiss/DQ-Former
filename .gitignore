@@ -1,7 +1,8 @@
 # Defined ignore files
-
+.cursor/
 slurm*
 envs/
+/scripts/data_analysis
 local.env.sh
 /pampa/
 init_env_mine.sh

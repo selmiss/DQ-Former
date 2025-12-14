@@ -6,10 +6,10 @@ export PYTHONPATH=${BASE_DIR}:${PYTHONPATH}
 export CUDA_VISIBLE_DEVICES=7
 
 # List of tasks to evaluate
-TASKS=${TASKS:-"hiv bace bbbp pampa clintox hia pgp ames dili herg"}
+TASKS=${TASKS:-"bace clintox hia pgp ames dili herg"}
 
 # List of prompt types to use (all 13 prompts)
-PROMPT_TYPES=${PROMPT_TYPES:-"default_variant_1 default_variant_2 default_variant_3 rationale_variant_1 rationale_variant_2 task_info_variant_1 task_info_variant_2 binary_instruction confidence_instruction checklist_instruction"}
+PROMPT_TYPES=${PROMPT_TYPES:-"default rationale task_info default_variant_1 default_variant_2 default_variant_3 rationale_variant_1 rationale_variant_2 task_info_variant_1 task_info_variant_2 binary_instruction confidence_instruction checklist_instruction"}
 
 for task_name in ${TASKS}; do
     echo "=================================================="
@@ -26,7 +26,7 @@ for task_name in ${TASKS}; do
             --task_name ${task_name} \
             --qformer_path ${BASE_DIR}/checkpoints/edt_former_s2_large/final_model/model.safetensors \
             --prompt_type ${prompt_type} \
-            --output_name edt_former_s2_large \
+            --output_name post_edt_former_s2_large \
             --use_dq_encoder \
             --freeze_llm \
             --enable_blending
